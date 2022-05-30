@@ -1,0 +1,3 @@
+#!/bin/bash
+
+./build-inst-image --tree /root/os-image.tar install-system

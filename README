@@ -1,0 +1,159 @@
+
+This is a proof of concept demonstrating how full disk encryption could
+be supported by the ALP installer.
+
+ * The installed system receives two partitions, one EFI partition
+   and one system partition (including /boot).
+
+ * The system partition is set up as LUKS2 volume with a randomly
+   generated 32byte pass key. This should hopefully be good enough
+   to counterbalance any shortcomings of PBKDF2 (which is the only
+   key derivation function that grub2 currently supports)
+
+ * The pass key is sealed using the TPM against a set of PCR values.
+   Proposal is to use PCR0, 2, 4 plus PCR9.
+
+   PCR9 contains measurements of the files that grub2 loads.
+
+   /boot/efi/EFI/BOOT/grub.cfg needs to contain instructions
+   that allow it to unseal the key and use it with LUKS.
+   There is a patch set for grub2 that does this, originating
+   from Microsoft.
+
+ * When the installed system boots, grub unseals the key,
+   and uses it to mount the LUKS volume and access /boot.
+
+ * grub needs to pass the unsealed key to the kernel being
+   booted.
+   
+   One approach could be to store the key in a volatile UEFI
+   variable (say, LuksRootKey) and informing systemd/initrd
+   via the kernel command line.
+
+   systemd already recognizes a bunch of rd.luks.* options
+   on the kernel command line; maybe an easy approach might
+   be to extend the syntax of rd.luks.key to understand
+   references to uefi variables (as in rd.luks.key=efivar:LuksRootKey).
+
+ * IF the user boots anything other than the default kernel
+   entry from grub.cfg with the default set of command line
+   options, grub should NOT pass the unsealed key to the
+   kernel (and it should make sure to wipe memory buffers that
+   held the unsealed key - which the grub patch set currently
+   is not doing).
+
+ * caveat: we ought to seal against PCR 9, because we need to
+   detect modifications to grub.cfg in the EFI boot
+   partition. However, there's currently a catch-22, because
+   grub also measures the sealed key when it reads it
+   from file. So in order to predict PCR 9 and seal against
+   that value, we'd have to know the hash of the sealed key.
+   That's chicken and egg...
+
+   So the grub key protector stuff needs to be fixed in
+   the way that we do not measure the contents of the
+   sealed key file when loading it.
+
+   [Alternatively, we could seal against PCR 8, which
+   measures the grub commands being executed. But that
+   is somewhat brittle in that grub doesn't measure the
+   commands it reads from file, but after parsing and
+   variable expansion. So when grub.cfg has a line saying
+      echo "boot dev ($root)"
+   grub ends up measuring something like
+      echo boot dev (hd1,gpt2)
+   ]
+
+Implementation notes:
+
+ * When sealing a secret such as the key for the LUKS
+   key slot, the tpm2 tools produce a public and a
+   private portion stored in separate files. The grub2
+   TPM key protector patches expect the "sealed key" as a single
+   file, created by concatenating the public and the private
+   portion together.
+
+ * For the time being, the PoC seals the secret just against
+   PCR0, which is of course not sufficient.
+
+   In order to seal against PCR 2, we need to measure
+   the grub EFI binary.
+
+   In order to seal against PCR 4, I *hope* that it is
+   sufficient to seal against the PCR4 value visible during
+   installation.
+
+ * Note: when sealing the key, make sure to use the exact
+   same set of key attributes that the grub2 patch set
+   uses to unseal it. Otherwise, you'll end up with a policy
+   error, and/or decrypting garbage. See the declartion of
+   TPM2_SRK_ATTRS in the build script.
+
+What the PoC does so far, and how to use it:
+
+ * OBS checkout of the patched grub2 package from
+   home:okir:FDE/grub2
+
+   Build the package locally using obs build, then extract
+   the grub2 EFI binary (using ./unpack-test-grub). This will
+   cause this binary to be used as the EFI loader in both the
+   installer and the final system image.
+
+ * Create a tarball containing a system image you want to use.
+   I started from the Leap 15.4 vagrant image.
+
+   Bring up a vagrant box, note down the IP of this instance, and
+   run
+
+     ./create-tarball $ip_of_vagrant_box
+
+   When prompted for the password of user vagrant, type "vagrant".
+   This exercise will leave the tarball in /tmp/leap-15.4-image.tar
+   which happens to be the exact location that the build script
+   expects to find it.
+
+   If you want to use any other tarball as system image, please
+   make sure to edit the TREE=... assignment at the top of the
+   build-inst-image script.
+
+ * Building the installation image
+
+     sudo ./build-inst-image
+
+   This will create an installation image and an empty system image.
+   The build process uses /tmp/build as build directory, also leaving
+   the two image files in this location
+
+ * Fire up the VM
+
+     sudo ./run-install
+
+   More likely than not, this will give you a prompt saying that
+   no valid boot loader could be found. That's because the grub
+   loader in the installer image is not signed for Secure Boot. Hence,
+   for testing this stuff, you need to disable secure boot.
+
+   Press the any key; tianocore should offer you the option to disable
+   secure boot. (Device Manager -> Secure Boot -> disable; save)
+
+   Once done, the VM needs a hard reset, simply hitting "Continue"
+   will not do.
+
+ * Now, the VM should be booting into the install system. To make
+   testing easier, the installer doesn't start up automatically, but
+   you have to do so manually. Log in as root, password root, and
+   run ./install-luks
+
+   This will partition the system image, setting up a UEFI partition
+   for booting, and a LUKS2 encrypted partition for the system.
+
+ * reboot. You should see messages about the TPM successfully unlocking
+   the LUKS2 key for slot 0.
+
+   From here on, things are going south for the time being... grub is
+   still able to load kernel and initrd from the LUKS partition, but
+   it won't be able to mount the root partition, for two reasons:
+    - the grub.cfg we're currently generating doesn't expect a LUKS
+      device as root
+    - we're not yet passing the LUKS key to the kernel
+

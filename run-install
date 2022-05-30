@@ -1,0 +1,16 @@
+#!/bin/bash
+
+case "$(virsh net-info default | grep -i active)" in
+*yes*) echo "Network \"default\" is already active; good";;
+*)
+	virsh net-start default;;
+esac
+
+exec virt-install --name vm-1 \
+	--os-variant=opensuse15.3 \
+	--boot hd,uefi \
+	--disk /tmp/build/system-image \
+	--disk /tmp/build/install-image \
+	--memory 2048 --console pty,target_type=virtio \
+	--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis \
+	--network network=default

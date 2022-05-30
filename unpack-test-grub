@@ -1,0 +1,8 @@
+#!/bin/bash
+
+PACKAGE=/var/tmp/build-root/15.4-x86_64/home/abuild/rpmbuild/RPMS/noarch/grub2-x86_64-efi-2.06-0.noarch.rpm
+
+echo "Trying to extract grub-tpm.efi from $PACKAGE"
+rpm2cpio $PACKAGE | cpio -idv ./usr/share/grub2/x86_64-efi/*
+cp ./usr/share/grub2/x86_64-efi/grub-tpm.efi bootx64.efi
+rm -rf ./usr
