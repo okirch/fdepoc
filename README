@@ -35,12 +35,23 @@ be supported by the ALP installer.
    be to extend the syntax of rd.luks.key to understand
    references to uefi variables (as in rd.luks.key=efivar:LuksRootKey).
 
+   To test that approach, I modified the tpm key protector
+   code in grub to store the LUKS key in a volatile UEFI
+   variable, but I couldn't get that to work. In the end,
+   that's probably not the right way to do it anyway - instead,
+   it may be better to add a new command for that.
+
  * IF the user boots anything other than the default kernel
    entry from grub.cfg with the default set of command line
    options, grub should NOT pass the unsealed key to the
    kernel (and it should make sure to wipe memory buffers that
    held the unsealed key - which the grub patch set currently
    is not doing).
+
+   Alternatively, we could disallow editing in grub entirely when
+   full disk encryption is in effect. If the user ever needs to
+   roll back, boot a kernel in debug mode etc, they would have
+   to boot through a rescue partition instead.
 
  * caveat: we ought to seal against PCR 9, because we need to
    detect modifications to grub.cfg in the EFI boot
