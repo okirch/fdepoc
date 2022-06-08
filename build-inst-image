@@ -8,12 +8,12 @@ IMAGE_SIZE=2048
 
 # Just for prototyping. For the final implementation, we need the user to
 # supply the passphrase, or we use a randomly generated one
-DEFAULT_PASSPHRASE="kingcrimson"
+# DEFAULT_PASSPHRASE="kingcrimson"
 
 # List of PCRs to seal the LUKS key to
 SEAL_PCR_LIST=0,1,2,3,4,5,6,7
 #SEAL_PCR_LIST=0,4
-SEAL_PCR_LIST=0
+SEAL_PCR_LIST=0,2
 SEAL_PCR_BANK=sha256
 
 # These need to match exactly what grub2 uses to create the SRK
@@ -118,6 +118,11 @@ function mount_image {
 	mount_device $root_dev $build_root
 	mkdir -p $build_root/boot/efi
 	mount_device $boot_dev $build_root/boot/efi
+}
+
+function get_path_device {
+
+	df --output=source $1 | tail -1
 }
 
 function get_partition_uuid {
@@ -231,14 +236,18 @@ function install_grub {
 
 #	. /etc/default/grub
 
-	uuid=$(get_device_uuid $ROOTDEV)
+	root_dev=$(get_path_device $root_path)
+	uuid=$(get_device_uuid $root_dev)
 	os_release=$(get_os_release $root_path)
 
 	if [ -n "$sealed_luks_key" ]; then
-		kernel_root="rd.luks.uuid=$uuid rd.luks.key=efivar:LuksBootKey"
+		kernel_root="rd.luks.uuid=$uuid rd.luks.name=$uuid=root"
+		kernel_root+=" rd.luks.key=efivar:LuksBootKey"
+		kernel_root+=" rd.luks.options=timeout=10s,discard,tries=1"
 	else
 		kernel_root="root=UUID=$uuid"
 	fi
+	echo "Describing root fs as: $kernel_root"
 
 	echo "Creating grub.cfg for kernel $kernel_version"
 	sed -e "s|@KERNEL_ROOT_SPEC@|$kernel_root|" \
@@ -336,8 +345,13 @@ function copy_installer {
 	cp install-luks grub.cfg.in $destdir
 	cp -v $TREE $destdir/os-image.tar
 
-	if [ -f bootx64.efi ] && $opt_testing; then
-		cp bootx64.efi $destdir
+	if $opt_testing; then
+		if [ -f bootx64.efi ]; then
+			cp -v bootx64.efi $destdir
+		fi
+		if [ -f systemd-cryptsetup-generator ]; then
+			cp -v systemd-cryptsetup-generator $destdir
+		fi
 	fi
 }
 
@@ -437,7 +451,7 @@ function prepare_luks_partition {
 	# Beware, cryptsetup will read the whole file and consider an existing
 	# newline part of the pass phrase. Which makes it kinda hard to enter
 	# that passphrase interactively later.
-	if false; then
+	if [ -n "$DEFAULT_PASSPHRASE" ]; then
 		echo -n $DEFAULT_PASSPHRASE > $luks_key
 	fi
 
@@ -564,6 +578,10 @@ function install_requisite_packages {
 		tpm2.0-tools \
 		cryptsetup
 
+	if [ -x /root/systemd-cryptsetup-generator ]; then
+		echo "Overwriting systemd-cryptsetup-generator with test version"
+		cp /root/systemd-cryptsetup-generator /usr/lib/systemd/system-generators/systemd-cryptsetup-generator
+	fi
 }
 
 function install_system {

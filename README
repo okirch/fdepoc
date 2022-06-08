@@ -26,9 +26,9 @@ be supported by the ALP installer.
  * grub needs to pass the unsealed key to the kernel being
    booted.
    
-   One approach could be to store the key in a volatile UEFI
-   variable (say, LuksRootKey) and informing systemd/initrd
-   via the kernel command line.
+   One approach suggested by Michael Chang is to store the key
+   in a volatile UEFI variable (say, LuksRootKey) and informing
+   systemd/initrd via the kernel command line.
 
    systemd already recognizes a bunch of rd.luks.* options
    on the kernel command line; maybe an easy approach might
@@ -37,9 +37,13 @@ be supported by the ALP installer.
 
    To test that approach, I modified the tpm key protector
    code in grub to store the LUKS key in a volatile UEFI
-   variable, but I couldn't get that to work. In the end,
-   that's probably not the right way to do it anyway - instead,
-   it may be better to add a new command for that.
+   variable, which works (so from the dracut emergency prompt,
+   I was able to mount the efivarfs, and the LuksRootKey-* variable
+   contained the LUKS key in clear text).
+   
+   What I did not succeed in doing, however, was teach
+   systemd-cryptsetup-generator how to extract the key from that
+   file.
 
  * IF the user boots anything other than the default kernel
    entry from grub.cfg with the default set of command line
@@ -163,8 +167,17 @@ What the PoC does so far, and how to use it:
 
    From here on, things are going south for the time being... grub is
    still able to load kernel and initrd from the LUKS partition, but
-   it won't be able to mount the root partition, for two reasons:
-    - the grub.cfg we're currently generating doesn't expect a LUKS
-      device as root
-    - we're not yet passing the LUKS key to the kernel
+   it won't be able to mount the root partition yet.
 
+   Right now, initrd is reporting errors and warnings that may or
+   may not be related to my TPM experimentation:
+
+    EFI Loader Partition unknown, exiting.
+    (The boot loader did not set EFI variable LoaderDevicePartUUID.)
+
+   And then it complains about our use of rd.luks.key:
+
+    systemd-cryptsetup@root.service: RequiresMountFor= path is not
+    	absolute, ignoring: efivar:LuksRootKey
+
+   The latter sounds like just a warning, however.
