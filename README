@@ -114,6 +114,15 @@ What the PoC does so far, and how to use it:
    cause this binary to be used as the EFI loader in both the
    installer and the final system image.
 
+ * On the virtualization host, download the qemu-ovmf-x86_64
+   package from the FDE repository and install it. This contains
+   a UEFI firmware that adds the repository's signing key
+   as a UEFI Secure Boot key.
+
+   [NO WORKIE - virt-install complains that libvirt doesn't
+    support UEFI any longer - needed to extract the code
+    and vars files and install them manually]
+
  * Create a tarball containing a system image you want to use.
    I started from the Leap 15.4 vagrant image.
 

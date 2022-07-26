@@ -19,6 +19,9 @@ SEAL_PCR_BANK=sha256
 # These need to match exactly what grub2 uses to create the SRK
 TPM2_SRK_ATTRS="userwithauth|restricted|decrypt|fixedtpm|fixedparent|noda|sensitivedataorigin"
 
+# Distro name used in the /boot/efi/EFI/$distro path
+DISTRO=opensuse
+
 BUILDDIR=/tmp/build
 INSTALL_IMAGE=$BUILDDIR/install-image
 SYSTEM_IMAGE=$BUILDDIR/system-image
@@ -162,6 +165,30 @@ function install_system_image {
 	tar -C $root_path -xf $tarball
 }
 
+function install_system_repo {
+
+	root_path=$1
+	repo_name=$2
+	repo_url=$3
+	key_url=$4
+
+	rpm --root $root_path --import $key_url
+
+	zypper --root $root_path ar $repo_url $repo_name
+	zypper --root $root_path refresh FDE
+
+	# interactive_mode
+}
+
+function install_package {
+
+	root_path=$1; shift
+
+#	cache=$(mktemp -d /tmp/pkgcache.XXXXXX)
+	zypper --root $root_path install -f -y "$@"
+#	rm -rf $cache
+}
+
 function detect_kernel_version {
 
 	boot_path=$1
@@ -212,6 +239,7 @@ function grub_mount_unencrypted_commands {
 	uuid=$1
 
 	cat <<EOF
+tpm_record_pcrs
 set btrfs_relative_path="yes"
 search --fs-uuid --set=root $uuid
 set prefix=(\$root)/boot/grub2
@@ -232,7 +260,9 @@ function install_grub {
 	fi
 
 	echo "Installing grub"
-	grub2-install $LOOPDEV --target=x86_64-efi --boot-directory $boot_path
+	grub2-install $LOOPDEV --target=x86_64-efi \
+		--disable-shim-lock \
+		--boot-directory $boot_path
 
 #	. /etc/default/grub
 
@@ -255,29 +285,36 @@ function install_grub {
 	    -e "s|@KERNEL_VERSION@|$kernel_version|" \
 	    < grub.cfg.in > $boot_path/grub2/grub.cfg
 
-	# efi_path=$boot_path/efi/EFI/BOOT
-	efi_path=$boot_path/efi/EFI/opensuse
+	efi_distro_path=$boot_path/efi/EFI/$DISTRO
+	efi_boot_path=$boot_path/efi/EFI/BOOT
+
+	mkdir -p $efi_distro_path $efi_boot_path
+
+	if [ -f "$efi_distro_path/grub.cfg" ]; then
+		mv "$efi_distro_path/grub.cfg" "$efi_distro_path/grub.cfg.orig"
+	fi
 
 	if [ -n "$sealed_luks_key" ]; then
-		cp -v $sealed_luks_key $efi_path/sealed.key
-		grub_mount_encrypted_commands sealed.key >$efi_path/grub.cfg
+		cp -v $sealed_luks_key $efi_distro_path/sealed.key
+		grub_mount_encrypted_commands sealed.key >$efi_distro_path/grub.cfg
 	else
-		grub_mount_unencrypted_commands $uuid >$efi_path/grub.cfg
+		grub_mount_unencrypted_commands $uuid >$efi_distro_path/grub.cfg
 	fi
 
-	echo "Contents of $efi_path/grub.cfg"
-	cat $efi_path/grub.cfg
+	echo "Contents of $efi_distro_path/grub.cfg"
+	cat $efi_distro_path/grub.cfg
 	echo
 
-	mv $boot_path/efi/EFI/opensuse $boot_path/efi/EFI/BOOT
-	mv $boot_path/efi/EFI/BOOT/{grubx64,bootx64}.efi
+	mv $efi_distro_path/* $efi_boot_path
 
-	if [ -f bootx64.efi ] && $opt_testing; then
-		echo "Installing local bootx64.efi for testing"
-		cp -v bootx64.efi $boot_path/efi/EFI/BOOT/bootx64.efi
+	if $opt_testing; then
+		if [ -f bootx64.efi ]; then
+			echo "Installing local bootx64.efi for testing"
+			cp -v bootx64.efi $efi_boot_path/bootx64.efi
+		fi
 	fi
 
-	# find $boot_path/efi -ls
+	find $boot_path/efi -ls
 
 	echo "Installing openSUSE theme"
 	mkdir -p $boot_path/grub2/themes/openSUSE
@@ -404,10 +441,30 @@ function create_install_image {
 
 	install_system_image $TREE $ROOT
 
+	install_system_repo $root_path FDE \
+		https://download.opensuse.org/repositories/home:/okir:/FDE/15.4 \
+		https://download.opensuse.org/repositories/home:/okir:/FDE/15.4/repodata/repomd.xml.key
+
+	# Install EFI boot loader stuff without triggering an update-bootloader run
+	cp $root_path/etc/sysconfig/bootloader{,.save}
+	echo > $root_path/etc/sysconfig/bootloader
+	install_package $root_path \
+		-r FDE \
+		grub2-x86_64-efi shim
+	mv $root_path/etc/sysconfig/bootloader{.save,}
+
 	df $ROOT
 
-	if ! install_grub $ROOT; then
-		exit 1
+	# shim-install only seems to work when running in the installled system,
+	# as it uses efibootmgr which wants to scribble over the system's EFI
+	# variables...
+	if false; then
+		shim-install --efi-directory $BOOTDIR/efi $BOOTDEV
+
+		echo
+		echo "After shim-install"
+		find $BOOTDIR
+		echo
 	fi
 
 	install_fstab $ROOT $ROOTDEV $BOOTDEV
@@ -419,6 +476,10 @@ function create_install_image {
 	for dir in $MOUNTDIRS; do
 		bind_host_fs $dir $ROOT$dir
 	done
+
+	if ! install_grub $ROOT; then
+		exit 1
+	fi
 
 	rebuild_mkinitrd $ROOT
 	forget_persistent_device_names $ROOT
@@ -673,6 +734,15 @@ function test_tpm {
 		echo "Seal/unseal is not working"
 		exit 1
 	fi
+}
+
+# For testing purposes
+function interactive_mode {
+
+	echo
+	echo "*** Entering interactive mode ***"
+	PS1=">> " bash
+	echo "*** Done with interactive mode ***"
 }
 
 MOUNTED_DIRS=""

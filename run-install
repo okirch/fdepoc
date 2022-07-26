@@ -6,9 +6,11 @@ case "$(virsh net-info default | grep -i active)" in
 	virsh net-start default;;
 esac
 
+EXTRA_BOOT_OPTIONS=",loader=/usr/share/qemu/ovmf-x86_64-smm-devel-code.bin,nvram_template=/usr/share/qemu/ovmf-x86_64-smm-devel-vars.bin"
+
 exec virt-install --name vm-1 \
 	--os-variant=opensuse15.3 \
-	--boot hd,uefi \
+	--boot hd,uefi$EXTRA_BOOT_OPTIONS \
 	--disk /tmp/build/system-image \
 	--disk /tmp/build/install-image \
 	--memory 2048 --console pty,target_type=virtio \

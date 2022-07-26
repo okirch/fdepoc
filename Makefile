@@ -3,7 +3,7 @@
 CFLAGS	= -Wall -I /usr/include/tss2
 LINK	= -ltss2-fapi -lcrypto
 
-all: thing oracle
+all: oracle
 
 clean:
 	rm -f thing *.o
