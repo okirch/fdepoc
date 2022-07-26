@@ -1,6 +1,14 @@
+/*
+ * Copyright (C) 2022 SUSE LLC
+ *
+ * GPLv2 applies.
+ */
 
 #include <openssl/evp.h>
+#include <sys/stat.h>
 #include <getopt.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -288,10 +296,44 @@ predictor_update_string(struct predictor *pred, const char *value)
 }
 
 static void
+predictor_update_file(struct predictor *pred, const char *filename)
+{
+	struct stat stb;
+	char *buffer;
+	int fd, n;
+
+	if ((fd = open(filename, O_RDONLY)) < 0)
+		fatal("Unable to open file %s: %m\n", filename);
+
+	if (fstat(fd, &stb) < 0)
+		fatal("Cannot stat %s: %m\n", filename);
+
+	if (!(buffer = malloc(stb.st_size)))
+		fatal("Cannot allocate buffer of %lu bytes for %s: %m\n",
+				(unsigned long) stb.st_size,
+				filename);
+
+	n = read(fd, buffer, stb.st_size);
+	if (n < 0)
+		fatal("Error while reading from %s: %m\n", filename);
+	if (n != stb.st_size)
+		fatal("Short read from %s\n", filename);
+
+	close(fd);
+
+	debug("Read %lu bytes from %s\n", (unsigned long) stb.st_size, filename);
+	predictor_extend(pred, buffer, stb.st_size);
+	free(buffer);
+}
+
+static void
 predictor_update(struct predictor *pred, const char *type, const char *arg)
 {
 	if (!strcmp(type, "string")) {
 		predictor_update_string(pred, arg);
+	} else
+	if (!strcmp(type, "file")) {
+		predictor_update_file(pred, arg);
 	} else {
 		fprintf(stderr, "Unsupported keyword \"%s\" while trying to update predictor\n", type);
 		usage(1, NULL);
@@ -348,7 +390,7 @@ main(int argc, char **argv)
 	pcr_index = parse_pcr_index(argv[optind++]);
 	pred = predictor_new(pcr_index, opt_from, opt_algo);
 
-	for (; optind + 1 < argc; optind += 1) {
+	for (; optind + 1 < argc; optind += 2) {
 		predictor_update(pred, argv[optind], argv[optind + 1]);
 	}
 
