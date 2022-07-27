@@ -64,19 +64,20 @@ fatal(const char *fmt, ...)
 	exit(2);
 }
 
-static unsigned int
-parse_pcr_index(const char *word)
+static bool
+parse_pcr_index(const char *word, unsigned int *ret)
 {
 	unsigned int value;
 	const char *end;
 
-	value = strtoul(word, (char **) &end, 0);
+	value = strtoul(word, (char **) &end, 10);
 	if (*end) {
 		fprintf(stderr, "Unable to parse PCR index \"%s\"\n", word);
-		usage(1, NULL);
+		return false;
 	}
 
-	return value;
+	*ret = value;
+	return true;
 }
 
 enum {
@@ -97,7 +98,7 @@ struct predictor {
 };
 
 static bool
-parse_hexdigit(char **pos, unsigned char *ret)
+parse_hexdigit(const char **pos, unsigned char *ret)
 {
 	char cc = *(*pos)++;
 
@@ -115,7 +116,7 @@ parse_hexdigit(char **pos, unsigned char *ret)
 }
 
 static bool
-parse_octet(char **pos, unsigned char *ret)
+parse_octet(const char **pos, unsigned char *ret)
 {
 	return parse_hexdigit(pos, ret) && parse_hexdigit(pos, ret);
 }
@@ -123,43 +124,41 @@ parse_octet(char **pos, unsigned char *ret)
 static void
 predictor_init_from_snapshot(struct predictor *pred)
 {
-	const char *efivar_path = "/sys/firmware/efi/vars/GrubPcrSnapshot-" GRUB_PCR_SNAPSHOT_UUID;
+	const char *efivar_path = "/sys/firmware/efi/vars/GrubPcrSnapshot-" GRUB_PCR_SNAPSHOT_UUID "/data";
 	char linebuf[256];
 	bool found = false;
 	FILE *fp;
 
+	debug("Trying to find PCR %d in %s\n", pred->index, efivar_path);
 	if (!(fp = fopen(efivar_path, "r")))
 		fatal("Unable to open \"%s\": %m\n", efivar_path);
 
 	while (fgets(linebuf, sizeof(linebuf), fp) != NULL) {
 		unsigned int index;
-		const char *algo;
+		const char *algo, *value;
 		unsigned int i;
-		char *s;
+		char *w;
 
-		index = strtoul(linebuf, &s, 10);
-		if (index != pred->index)
+		debug("=> %s", linebuf);
+		if (!(w = strtok(linebuf, " \t\n")))
 			continue;
 
-		if (*s != ' ')
-			continue;
-		while (*s == ' ')
-			++s;
-
-		algo = s;
-		while (*s && *s != ' ')
-			++s;
-		if (*s != '\0')
-			*s++ = '\0';
-		while (*s == ' ')
-			++s;
-		if (strcasecmp(algo, pred->algo))
+		if (!parse_pcr_index(w, &index)
+		 || !(algo = strtok(NULL, " \t\n")))
 			continue;
 
-		for (i = 0; parse_octet(&s, &pred->md_value[i]); ++i)
+		debug("inspecting %u:%s\n", index, algo);
+		if (index != pred->index
+		 || strcasecmp(algo, pred->algo))
+			continue;
+
+		if (!(value = strtok(NULL, " \t\n")))
+			continue;
+		for (i = 0; parse_octet(&value, &pred->md_value[i]); ++i)
 			;
 
-		if (*s)
+		debug("parsed %u octets\n", i);
+		if (*value)
 			continue;
 
 		if (i == pred->md_size) {
@@ -387,7 +386,9 @@ main(int argc, char **argv)
 	if (optind + 1 > argc)
 		usage(1, "Expected PCR index as argument");
 
-	pcr_index = parse_pcr_index(argv[optind++]);
+	if (!parse_pcr_index(argv[optind++], &pcr_index))
+		usage(1, "Bad value for PCR argument");
+
 	pred = predictor_new(pcr_index, opt_from, opt_algo);
 
 	for (; optind + 1 < argc; optind += 2) {
