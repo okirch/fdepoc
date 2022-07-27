@@ -1,7 +1,21 @@
 /*
- * Copyright (C) 2022 SUSE LLC
+ *   Copyright (C) 2022 SUSE LLC
  *
- * GPLv2 applies.
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program; if not, write to the Free Software
+ *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
+ * Written by Olaf Kirch <okir@suse.com>
  */
 
 #include <openssl/evp.h>
@@ -18,6 +32,25 @@
 #include <ctype.h>
 #include <tss2_fapi.h>
 
+enum {
+	PREDICT_FROM_ZERO,
+	PREDICT_FROM_CURRENT,
+	PREDICT_FROM_SNAPSHOT,
+};
+
+struct predictor {
+	unsigned int	index;
+	int		from;
+
+	const char *	algo;
+	const EVP_MD *	md;
+
+	void		(*report_fn)(struct predictor *);
+
+	unsigned int	md_size;
+	unsigned char	md_value[EVP_MAX_MD_SIZE];
+};
+
 #define GRUB_PCR_SNAPSHOT_UUID	"7ce323f2-b841-4d30-a0e9-5474a76c9a3f"
 
 
@@ -32,11 +65,16 @@ static struct option options[] = {
 	{ "from-current",	no_argument,		0,	'C' },
 	{ "from-snapshot",	no_argument,		0,	'S' },
 	{ "algorithm",		required_argument,	0,	'A' },
+	{ "format",		required_argument,	0,	'F' },
 
 	{ NULL }
 };
 
 static bool opt_debug	= false;
+
+static void	predictor_report_plain(struct predictor *pred);
+static void	predictor_report_tpm2_tools(struct predictor *pred);
+static void	predictor_report_binary(struct predictor *pred);
 
 static void
 usage(int exitval, const char *msg)
@@ -46,7 +84,27 @@ usage(int exitval, const char *msg)
 
 	fprintf(stderr,
 		"\nUsage:\n"
-		"pcr-oracle [options] pcr-index\n"
+		"pcr-oracle [options] pcr-index [updates...]\n"
+		"\n"
+		"The following options are recognized:\n"
+		"  -Z, --from-zero        Assume a PCR state of all zero\n"
+		"  -C, --from-current     Set the PCR state to the current state of the host's PCR\n"
+		"  -C, --from-snapshot    Read the PCR state from a snapshot taken during boot (GrubPcrSnapshot EFI variable)\n"
+		"  -A name, --algorithm name\n"
+		"                         Use hash algorithm <name>. Defaults to sha256\n"
+		"  -F name, --output-format name\n"
+		"                         Specify how to display the resulting PCR value. The default is \"plain\",\n"
+		"                         which just prints the value as a hex string. When using \"tpm2-tools\", the\n"
+		"                         output string is formatted to resemble the output of tpm2_pcrread.\n"
+		"                         Finally, \"binary\" writes our the raw binary data so that it can be consumed\n"
+		"                         tpm2_policypcr.\n"
+		"\n"
+		"The PCR index can be followed by zero or more pairs of data describing how to extend the PCR.\n"
+		"Each pair is a type, and and argument. These types are currently recognized:\n"
+		"  string                 The PCR is extended with the string argument.\n"
+		"  file                   The argument is taken as a file name. The PCR is extended with the file's content.\n"
+		"\n"
+		"After the PCR predictor has been extended with all updates specified, its value is printed to standard output.\n"
 	       );
 	exit(exitval);
 }
@@ -79,23 +137,6 @@ parse_pcr_index(const char *word, unsigned int *ret)
 	*ret = value;
 	return true;
 }
-
-enum {
-	PREDICT_FROM_ZERO,
-	PREDICT_FROM_CURRENT,
-	PREDICT_FROM_SNAPSHOT,
-};
-
-struct predictor {
-	unsigned int	index;
-	int		from;
-
-	const char *	algo;
-	const EVP_MD *	md;
-
-	unsigned int	md_size;
-	unsigned char	md_value[EVP_MAX_MD_SIZE];
-};
 
 static bool
 parse_hexdigit(const char **pos, unsigned char *ret)
@@ -219,7 +260,7 @@ predictor_init_from_current(struct predictor *pred)
 }
 
 static struct predictor *
-predictor_new(unsigned int index, int from, const char *algo_name)
+predictor_new(unsigned int index, int from, const char *algo_name, const char *output_format)
 {
 	struct predictor *pred;
 
@@ -235,6 +276,17 @@ predictor_new(unsigned int index, int from, const char *algo_name)
 	}
 
 	pred->md_size = EVP_MD_size(pred->md);
+
+	if (!output_format || !strcasecmp(output_format, "plain"))
+		pred->report_fn = predictor_report_plain;
+	else
+	if (!output_format || !strcasecmp(output_format, "tpm2-tools"))
+		pred->report_fn = predictor_report_tpm2_tools;
+	else
+	if (!output_format || !strcasecmp(output_format, "binary"))
+		pred->report_fn = predictor_report_binary;
+	else
+		fatal("Unsupported output format \"%s\"\n", output_format);
 
 	if (pred->from == PREDICT_FROM_CURRENT) {
 		/* FIXME: read current value of indicated PCR and store it to md_value */
@@ -342,12 +394,36 @@ predictor_update(struct predictor *pred, const char *type, const char *arg)
 static void
 predictor_report(struct predictor *pred)
 {
+	pred->report_fn(pred);
+}
+
+static void
+predictor_report_plain(struct predictor *pred)
+{
 	unsigned int i;
 
 	/* printf("%s:%u ", pred->algo, pred->index); */
 	for (i = 0; i < pred->md_size; i++)
 		printf("%02x", pred->md_value[i]);
 	printf("\n");
+}
+
+static void
+predictor_report_tpm2_tools(struct predictor *pred)
+{
+	unsigned int i;
+
+	printf("  %-2d: 0x", pred->index);
+	for (i = 0; i < pred->md_size; i++)
+		printf("%02X", pred->md_value[i]);
+	printf("\n");
+}
+
+static void
+predictor_report_binary(struct predictor *pred)
+{
+	if (fwrite(pred->md_value, pred->md_size, 1, stdout) != 1)
+		fatal("failed to write hash to stdout");
 }
 
 int
@@ -357,12 +433,16 @@ main(int argc, char **argv)
 	struct predictor *pred;
 	int opt_from = -1;
 	char *opt_algo = NULL;
+	char *opt_output_format = NULL;
 	int c;
 
-	while ((c = getopt_long(argc, argv, "dhCSZ", options, NULL)) != EOF) {
+	while ((c = getopt_long(argc, argv, "dhA:CF:SZ", options, NULL)) != EOF) {
 		switch (c) {
 		case 'A':
 			opt_algo = optarg;
+			break;
+		case 'F':
+			opt_output_format = optarg;
 			break;
 		case 'Z':
 			opt_from = PREDICT_FROM_ZERO;
@@ -389,7 +469,7 @@ main(int argc, char **argv)
 	if (!parse_pcr_index(argv[optind++], &pcr_index))
 		usage(1, "Bad value for PCR argument");
 
-	pred = predictor_new(pcr_index, opt_from, opt_algo);
+	pred = predictor_new(pcr_index, opt_from, opt_algo, opt_output_format);
 
 	for (; optind + 1 < argc; optind += 2) {
 		predictor_update(pred, argv[optind], argv[optind + 1]);
