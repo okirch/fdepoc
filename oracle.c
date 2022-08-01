@@ -142,17 +142,18 @@ static bool
 parse_hexdigit(const char **pos, unsigned char *ret)
 {
 	char cc = *(*pos)++;
-
-	*ret <<= 4;
+	unsigned int octet;
 
 	if (isdigit(cc))
-		*ret = cc - '0';
+		octet = cc - '0';
 	else if ('a' <= cc && cc <= 'f')
-		*ret = cc - 'a' + 10;
+		octet = cc - 'a' + 10;
 	else if ('A' <= cc && cc <= 'F')
-		*ret = cc - 'A' + 10;
+		octet = cc - 'A' + 10;
 	else
 		return false;
+
+	*ret = (*ret << 4) | octet;
 	return true;
 }
 
