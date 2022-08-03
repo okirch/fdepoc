@@ -1,3 +1,5 @@
 *.o
 *.swp
+pcr-oracle
+*.bz2
 LOG

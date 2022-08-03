@@ -22,3 +22,4 @@ dist:
 	mkdir -p pcr-oracle-0.1
 	cp Makefile *.c pcr-oracle-0.1
 	tar cvjf pcr-oracle-0.1.tar.bz2 pcr-oracle-0.1/*
+	rm -rf pcr-oracle-0.1
