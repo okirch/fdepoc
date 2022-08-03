@@ -1,0 +1,62 @@
+#!/bin/bash
+
+DEBUG=--debug
+REPOS="--set-repo obs://openSUSE:Leap:15.4/standard"
+REPOS=
+
+function extra_pkg_args {
+
+	# not working...
+	if test -d extra-pkgs; then
+		echo -e "--add-repo dir:$PWD/extra-pkgs,rpm-dir"
+	fi
+}
+
+# PACKAGES=$(extra_pkg_args)
+
+case $1 in
+prepare|create|build)
+	verb=$1;;
+'')	verb=build;;
+*)	echo "Unsupported action \"$1\"" >&2; exit 1;;
+esac
+
+logfile="kiwi-${verb}.log"
+rm -f $logfile
+LOGOPTION="--logfile $logfile"
+
+
+set -x
+
+case $verb in
+build)
+	rm -rf /var/cache/kiwi/packages/da4a5b0de53b179eb79d2dff631b5939
+	rm -rf /tmp/myimage
+	kiwi-ng --type oem \
+		$DEBUG $LOGOPTION \
+		system build \
+		--description build-tests/x86/leap/test-image-disk \
+		$REPOS \
+		$PACKAGES \
+		--target-dir /tmp/myimage;;
+
+prepare)
+	rm -rf /tmp/myimage/root
+	kiwi-ng --type oem \
+		$DEBUG $LOGOPTION \
+		system prepare \
+		--description build-tests/x86/leap/test-image-disk \
+		--clear-cache \
+		$REPOS \
+		$PACKAGES \
+		--root /tmp/myimage/root;;
+
+create)
+	kiwi-ng --type oem \
+		$DEBUG $LOGOPTION \
+		system create \
+		--root /tmp/myimage/root \
+		--target-dir /tmp/myimage;;
+
+*)	echo "Action $verb not implemented" >&2;;
+esac
