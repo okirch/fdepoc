@@ -55,6 +55,12 @@ function fde_error {
     d --title ERROR --infobox "$*" 5 40
 }
 
+function fde_infobox {
+
+    d --infobox "$*" 5 40
+
+}
+
 ##################################################################
 # Locate the encrypted root device
 ##################################################################
@@ -131,7 +137,7 @@ function request_password {
     while [ $attempt -lt 3 ]; do
 	let attempt+=1
 
-    	d --infobox "About to request password (#$attempt)" 3 40
+    	fde_infobox "About to request password (#$attempt)"
 	if ! d $nocancel --insecure --passwordbox "${prompt}" 8 50; then
 	    # cancelling the dialog means "I don't want to set this password"
 	    echo "${defpass}"
@@ -171,7 +177,7 @@ function luks_drop_pass {
     luks_dev=$1
     old_pass="$2"
 
-    d --infobox "Dropping old recovery password" 3 40
+    fde_infobox "Dropping old recovery password"
     old_keyfile=$(luks_write_password oldpass "${old_pass}")
     if ! cryptsetup luksRemoveKey "${luks_dev}" ${old_keyfile}; then
 	echo "Warning: luksRemoveKey indicates failure" >&2
@@ -191,7 +197,7 @@ function luks_change_password {
 	return 1
     fi
 
-    d --infobox "Updating LUKS recovery password" 3 40
+    fde_infobox "Updating LUKS recovery password"
 
     old_keyfile=$(luks_write_password oldpass "${luks_old_password}")
     new_keyfile=$(luks_write_password newpass "${result_password}")
@@ -215,7 +221,7 @@ function luks_add_password {
 	return 1
     fi
 
-    d --infobox "Updating LUKS recovery password" 3 40
+    fde_infobox "Updating LUKS recovery password"
 
     new_keyfile=$(luks_write_password newpass "${result_password}")
     if ! cryptsetup --key-file "${luks_keyfile}" luksAddKey --pbkdf pbkdf2 "${luks_dev}" ${new_keyfile}; then
@@ -487,21 +493,38 @@ function unmount_system {
     unset MOUNTED_DIRS SYSTEM_MP
 }
 
-function fde_install_grub {
+function fde_frob_cryptomount_command {
+
+    orig_cmd="$*"
+
+    cat <<-EOF
+
+tpm2_key_protector_init -b $FDE_SEAL_PCR_BANK -p $FDE_SEAL_PCR_LIST -k \$prefix/$sealed_key_file -E $FDE_ROOTKEY_EFIVAR_NAME
+if ! $orig_cmd -k tpm2; then
+    $orig_cmd
+fi
+tpm2_key_protector_exit
+
+EOF
+}
+
+function fde_update_grub {
 
     grub_dir="$1"
     sealed_key_file="$2"
 
     grub_cfg_file="${grub_dir}/grub.cfg"
 
-    protector_init_cmd="tpm2_key_protector_init -b $FDE_SEAL_PCR_BANK -p $FDE_SEAL_PCR_LIST -k \$prefix/$sealed_key_file -E $FDE_ROOTKEY_EFIVAR_NAME"
+    cat $grub_cfg_file | while read line; do
+    	case "$line" in 
+	*cryptomount*)
+	    fde_frob_cryptomount_command "$line";;
+	*)
+	    echo "$line";;
+	esac
+    done >$grub_cfg_file.new
 
-    sed -i \
-	-e "1i$protector_init_cmd" \
-	-e "/cryptomount/s/$/ -k tpm2/" \
-	"$grub_cfg_file"
-
-    cat "$grub_cfg_file"
+    mv $grub_cfg_file.new $grub_cfg_file
 }
 
 function fde_install_crypttab {
@@ -606,7 +629,7 @@ function fde_setup {
 	set -x
 	efi_grub_dir=/flabba/boot/efi/EFI/BOOT
 	tpm_seal_secret "${luks_keyfile}" "${efi_grub_dir}" "$efi_grub_dir/sealed.key"
-	fde_install_grub "$efi_grub_dir" sealed.key
+	fde_update_grub "$efi_grub_dir" sealed.key
 
 	chroot /flabba mkinitrd
     else
@@ -651,6 +674,11 @@ function fde_setup2 {
 
     efi_grub_dir=/boot/efi/EFI/BOOT
     tpm_seal_secret "${luks_keyfile}" "${efi_grub_dir}" "$efi_grub_dir/sealed.key"
+
+    fde_update_grub "$efi_grub_dir" sealed.key
+
+    fde_infobox "Re-creating initial ramdisk"
+    mkinitrd >&2
 }
 
 function foo {
@@ -667,7 +695,7 @@ function foo {
 
 function fde_systemd_firstboot {
 
-    d --infobox "Full Disk Encryption with TPM2 support" 3 40
+    fde_infobox "Full Disk Encryption with TPM2 support"
 
     # FIXME: rather than hard-coding the recovery password here,
     # have kiwi write it to /.root.something and read it from there
