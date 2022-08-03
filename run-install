@@ -1,18 +1,40 @@
 #!/bin/bash
 
+KIWI_BUILD_RESULT=/tmp/myimage/alp-fde-demo.x86_64-1.15.3.install.iso
+
+SYSTEM_IMAGE=/tmp/build/system-image
+SYSTEM_IMAGE_SIZE=2048
+INSTALL_IMAGE=/tmp/build/install-image
+
 case "$(virsh net-info default | grep -i active)" in
 *yes*) echo "Network \"default\" is already active; good";;
 *)
 	virsh net-start default;;
 esac
 
-EXTRA_BOOT_OPTIONS=",loader=/usr/share/qemu/ovmf-x86_64-smm-devel-code.bin,nvram_template=/usr/share/qemu/ovmf-x86_64-smm-devel-vars.bin"
+EXTRA_BOOT_OPTIONS=",uefi,loader=/usr/share/qemu/ovmf-x86_64-smm-devel-code.bin,nvram_template=/usr/share/qemu/ovmf-x86_64-smm-devel-vars.bin"
+EXTRA_BOOT_OPTIONS=",uefi,loader=/usr/share/qemu/ovmf-x86_64-smm-suse-code.bin,nvram_template=/usr/share/qemu/ovmf-x86_64-smm-suse-vars.bin"
+# EXTRA_BOOT_OPTIONS=
+
+dd if=/dev/zero of=$SYSTEM_IMAGE bs=1MiB count=$SYSTEM_IMAGE_SIZE  status=none
+
+if [ -e "$KIWI_BUILD_RESULT" -a "$KIWI_BUILD_RESULT" -nt "$INSTALL_IMAGE" ]; then
+	ln -vf "$KIWI_BUILD_RESULT" "$INSTALL_IMAGE" ||
+	cp -v "$KIWI_BUILD_RESULT" "$INSTALL_IMAGE"
+else
+	echo
+	echo "WARNING: no new ISO image found" >&2
+	echo
+fi
 
 exec virt-install --name vm-1 \
 	--os-variant=opensuse15.3 \
-	--boot hd,uefi$EXTRA_BOOT_OPTIONS \
-	--disk /tmp/build/system-image \
-	--disk /tmp/build/install-image \
-	--memory 2048 --console pty,target_type=virtio \
+	--boot hd,cdrom$EXTRA_BOOT_OPTIONS \
+	--disk $SYSTEM_IMAGE \
+	--cdrom  "$INSTALL_IMAGE" \
+	--memory 2048 \
+	--console pty,target_type=virtio \
 	--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis \
 	--network network=default
+
+
