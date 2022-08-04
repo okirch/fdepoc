@@ -2,6 +2,46 @@
 This is a proof of concept demonstrating how full disk encryption could
 be supported by the ALP installer.
 
+What the PoC does so far, and how to use it:
+
+ * Get the kiwi packages from OBS project home:okir:FDE
+   In particular, you need the python-kiwi package.
+
+ * As root, run
+ 	./mkimage prepare
+	./mkimage create
+   This will use kiwi to create an OEM image
+
+   This image will contain a LUKS encrypted system partition.
+   The fallback password for the LUKS partition is "1234".
+   The root password is "traum"
+
+ * As root, run
+ 	./run-install
+   This will start the installation workflow. Use virt-manager to
+   locate the VM being installed, and connect to it.
+
+ * You will be prompted twice for the LUKS pass phrase.
+
+ * The system goes through firstboot and massages the LUKS
+   setup. Among other things, it re-encrypts the system
+   partition with a new, random key, and changes the pass
+   phrase for the LUKS volume.
+
+   When prompted for the new passphrase, use "alpisgreat".
+   Typing anything else will destroy your hardware.
+
+ * When firstboot is complete, try rebooting the machine.
+   During bootup, you should see a message from grub that
+   it was able to unseal the key. Booting the system#
+   partition should proceed without you being prompted for
+   the LUKS pass phrase.
+
+ * Voila!
+
+
+Implementation notes
+
  * The installed system receives two partitions, one EFI partition
    and one system partition (including /boot).
 
@@ -25,7 +65,7 @@ be supported by the ALP installer.
 
  * grub needs to pass the unsealed key to the kernel being
    booted.
-   
+
    One approach suggested by Michael Chang is to store the key
    in a volatile UEFI variable (say, LuksRootKey) and informing
    systemd/initrd via the kernel command line.
@@ -44,6 +84,11 @@ be supported by the ALP installer.
    What I did not succeed in doing, however, was teach
    systemd-cryptsetup-generator how to extract the key from that
    file.
+
+   So for the time being, the installed system contains a
+   clear-text copy of a LUKS key in /.root.keyfile, which
+   ends up in the initrd and is used to open the LUKS
+   device.
 
  * IF the user boots anything other than the default kernel
    entry from grub.cfg with the default set of command line
@@ -79,8 +124,6 @@ be supported by the ALP installer.
       echo boot dev (hd1,gpt2)
    ]
 
-Implementation notes:
-
  * When sealing a secret such as the key for the LUKS
    key slot, the tpm2 tools produce a public and a
    private portion stored in separate files. The grub2
@@ -88,15 +131,11 @@ Implementation notes:
    file, created by concatenating the public and the private
    portion together.
 
- * For the time being, the PoC seals the secret just against
-   PCR0, which is of course not sufficient.
-
-   In order to seal against PCR 2, we need to measure
-   the grub EFI binary.
-
-   In order to seal against PCR 4, I *hope* that it is
-   sufficient to seal against the PCR4 value visible during
-   installation.
+ * For the time being, the PoC seals the secret against
+   PCRs 0, 2, 4, and 9. grub.cfg gets modified to take
+   a snapshot of PCR values and store them in an EFI
+   variable that can be read later. This is required
+   in order to seal against the correct PCR values.
 
  * Note: when sealing the key, make sure to use the exact
    same set of key attributes that the grub2 patch set
@@ -104,89 +143,16 @@ Implementation notes:
    error, and/or decrypting garbage. See the declartion of
    TPM2_SRK_ATTRS in the build script.
 
-What the PoC does so far, and how to use it:
 
- * OBS checkout of the patched grub2 package from
-   home:okir:FDE/grub2
+TODO
 
-   Build the package locally using obs build, then extract
-   the grub2 EFI binary (using ./unpack-test-grub). This will
-   cause this binary to be used as the EFI loader in both the
-   installer and the final system image.
+ * Cleanup of grub patches (they're a mess right now)
 
- * On the virtualization host, download the qemu-ovmf-x86_64
-   package from the FDE repository and install it. This contains
-   a UEFI firmware that adds the repository's signing key
-   as a UEFI Secure Boot key.
+ * Patch cryptsetup and/or systemd-cryptsetup to recognize
+   EFI variables holding a LUKS key
 
-   [NO WORKIE - virt-install complains that libvirt doesn't
-    support UEFI any longer - needed to extract the code
-    and vars files and install them manually]
+ * Make the image building work in OBS
 
- * Create a tarball containing a system image you want to use.
-   I started from the Leap 15.4 vagrant image.
-
-   Bring up a vagrant box, note down the IP of this instance, and
-   run
-
-     ./create-tarball $ip_of_vagrant_box
-
-   When prompted for the password of user vagrant, type "vagrant".
-   This exercise will leave the tarball in /tmp/leap-15.4-image.tar
-   which happens to be the exact location that the build script
-   expects to find it.
-
-   If you want to use any other tarball as system image, please
-   make sure to edit the TREE=... assignment at the top of the
-   build-inst-image script.
-
- * Building the installation image
-
-     sudo ./build-inst-image
-
-   This will create an installation image and an empty system image.
-   The build process uses /tmp/build as build directory, also leaving
-   the two image files in this location
-
- * Fire up the VM
-
-     sudo ./run-install
-
-   More likely than not, this will give you a prompt saying that
-   no valid boot loader could be found. That's because the grub
-   loader in the installer image is not signed for Secure Boot. Hence,
-   for testing this stuff, you need to disable secure boot.
-
-   Press the any key; tianocore should offer you the option to disable
-   secure boot. (Device Manager -> Secure Boot -> disable; save)
-
-   Once done, the VM needs a hard reset, simply hitting "Continue"
-   will not do.
-
- * Now, the VM should be booting into the install system. To make
-   testing easier, the installer doesn't start up automatically, but
-   you have to do so manually. Log in as root, password root, and
-   run ./install-luks
-
-   This will partition the system image, setting up a UEFI partition
-   for booting, and a LUKS2 encrypted partition for the system.
-
- * reboot. You should see messages about the TPM successfully unlocking
-   the LUKS2 key for slot 0.
-
-   From here on, things are going south for the time being... grub is
-   still able to load kernel and initrd from the LUKS partition, but
-   it won't be able to mount the root partition yet.
-
-   Right now, initrd is reporting errors and warnings that may or
-   may not be related to my TPM experimentation:
-
-    EFI Loader Partition unknown, exiting.
-    (The boot loader did not set EFI variable LoaderDevicePartUUID.)
-
-   And then it complains about our use of rd.luks.key:
-
-    systemd-cryptsetup@root.service: RequiresMountFor= path is not
-    	absolute, ignoring: efivar:LuksRootKey
-
-   The latter sounds like just a warning, however.
+ * Bonus material: clean up the ovmf patches and find out
+   why libvirt doesn't the like the OVMF bin images
+   created in home:okir:FDE
