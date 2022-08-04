@@ -6,7 +6,7 @@
 #FDE_SEAL_PCR_LIST=0,1,2,3,4,5,6,7
 #FDE_SEAL_PCR_LIST=0,4
 FDE_SEAL_PCR_LIST=0,2,9
-FDE_SEAL_PCR_LIST=0,2,4
+FDE_SEAL_PCR_LIST=0,2,4,9
 FDE_SEAL_PCR_BANK=sha256
 
 # It appears that the 128 is the maximum size of what TPM2_Load is willing to handle
@@ -17,6 +17,9 @@ FDE_ROOTKEY_EFIVAR_FULL=RootKey-58aca851-8af7-4738-a542-266e21f5cad9
 
 # These need to match exactly what grub2 uses to create the SRK
 TPM2_SRK_ATTRS="userwithauth|restricted|decrypt|fixedtpm|fixedparent|noda|sensitivedataorigin"
+
+# Enable/disable tracing output
+FDE_TRACING=true
 
 ##################################################################
 # Helper functions for temp file/dir creation
@@ -260,6 +263,17 @@ function luks_reencrypt {
     } | d --gauge "Reencrypting LUKS device $luks_dev" 7 40
 }
 
+##################################################################
+# Predict the set of PCR values that the TPM chip will hold at
+# the time we need to unseal the key.
+#
+# This function writes the binary PCR values to stdout. This is
+# the same format that tpm2_pcrread produces, and which tpm2_load
+# expects as parameter to the --pcr option.
+#
+# If tracing is on, print the computed values to stderr as well
+# (in human readable format) so that they wind up in the log file.
+##################################################################
 function tpm_build_pcrset {
 
     grub_cfg="$1"
@@ -270,12 +284,25 @@ function tpm_build_pcrset {
 	9)
 	    # we need to predict the value of PCR 9 exactly after reading
 	    # grub.cfg from the EFI partition of the installed system.
+	    # Note: grub must not hash the sealed key file to PCR9 when
+	    # loading it else we're in trouble :-)
 	    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" --format binary \
 			--from-zero 9 \
-			file "${grub_cfg}";;
+			file "${grub_cfg}"
+
+	    if $FDE_TRACING; then
+		    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
+			--from-zero 9 \
+			file "${grub_cfg}" >&2
+	    fi;;
 	*)
 	    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" --format binary \
-			--from-snapshot $index;;
+			--from-snapshot $index
+
+	    if $FDE_TRACING; then
+		    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
+			--from-snapshot $index >&2
+	    fi;;
 	esac
     done
 }
@@ -358,14 +385,11 @@ function seal_key_verify {
     privkey=$(fde_make_tempfile sealed-key.priv)
 
     if ! tpm_seal_key "$pcr_values_file" $secret $pubkey $privkey; then
-	# d --timeout 60 --msgbox "\"Failed to seal disk encryption key to TPM.\"" 5 80
-	# Do not exit - hopefully, the user has set a recovery key.
 	return 1
     fi
 
-    # The sealed key that grub expects seems to be just
-    # the concatenation of TPM2B_PUBLIC and a TPM2B containing
-    # the private key portion
+    # The sealed key that grub expects is just the concatenation of
+    # TPM2B_PUBLIC and a TPM2B containing the private key portion
     cat $pubkey $privkey > $sealed_key_file
 
     if $opt_verify; then
@@ -373,10 +397,10 @@ function seal_key_verify {
 	tpm_unseal_key "$pcr_values_file" $pubkey $privkey $unsealed_file
 
 	if ! cmp --quiet $secret $unsealed_file; then
-	    echo "Problem: TPM seal/unseal did not work!"
+	    echo "Problem: TPM seal/unseal did not work!" >&2
 	    retval=1
 	else
-	    echo "Splendid, we were able to unseal the TPM protected key"
+	    echo "Splendid, we were able to unseal the TPM protected key" >&2
 	    retval=0
 	fi
 	rm -f "$unsealed_file"
@@ -673,9 +697,12 @@ function fde_setup2 {
     luks_set_random_key "${luks_dev}" "${luks_keyfile}"
 
     efi_grub_dir=/boot/efi/EFI/BOOT
-    tpm_seal_secret "${luks_keyfile}" "${efi_grub_dir}" "$efi_grub_dir/sealed.key"
 
+    # First update grub.cfg...
     fde_update_grub "$efi_grub_dir" sealed.key
+
+    # ... then seal the key against a PCR9 value that covers grub.cfg
+    tpm_seal_secret "${luks_keyfile}" "${efi_grub_dir}" "$efi_grub_dir/sealed.key"
 
     fde_infobox "Re-creating initial ramdisk"
     mkinitrd >&2
@@ -711,13 +738,3 @@ function fde_cleanup {
 
 	:
 }
-
-
-
-if false; then
-log=/tmp/rekey.log
-fde_setup "${image_target}" /.root.keyfile "1234" >$log 2>&1
-set +x
-
-run_dialog --textbox $log 23 70
-fi

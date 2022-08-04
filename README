@@ -153,6 +153,10 @@ TODO
 
  * Make the image building work in OBS
 
+ * During first boot, we're being asked twice for the LUKS
+   passphrase. Why? There's a /root.key in the initrd
+   that should be picked up via crypttab
+
  * Bonus material: clean up the ovmf patches and find out
    why libvirt doesn't the like the OVMF bin images
    created in home:okir:FDE
