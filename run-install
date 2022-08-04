@@ -14,6 +14,7 @@ esac
 
 EXTRA_BOOT_OPTIONS=",uefi,loader=/usr/share/qemu/ovmf-x86_64-smm-devel-code.bin,nvram_template=/usr/share/qemu/ovmf-x86_64-smm-devel-vars.bin"
 EXTRA_BOOT_OPTIONS=",uefi,loader=/usr/share/qemu/ovmf-x86_64-smm-suse-code.bin,nvram_template=/usr/share/qemu/ovmf-x86_64-smm-suse-vars.bin"
+EXTRA_BOOT_OPTIONS=",uefi,loader=/usr/share/qemu/ovmf-x86_64-smm-suse-code.bin,nvram_template=$PWD/ovmf-x86_64-smm-suse-vars.bin"
 # EXTRA_BOOT_OPTIONS=
 
 dd if=/dev/zero of=$SYSTEM_IMAGE bs=1MiB count=$SYSTEM_IMAGE_SIZE  status=none
