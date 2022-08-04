@@ -1,5 +1,9 @@
 #!/bin/bash
 
+IMGDIR=./image
+BUILD_BASE=/tmp/myimage
+BUILD_ROOT="$BUILD_BASE/root"
+
 DEBUG=--debug
 REPOS="--set-repo obs://openSUSE:Leap:15.4/standard"
 REPOS=
@@ -15,7 +19,7 @@ function extra_pkg_args {
 # PACKAGES=$(extra_pkg_args)
 
 case $1 in
-prepare|create|build)
+prepare|create|build|obuild)
 	verb=$1;;
 '')	verb=build;;
 *)	echo "Unsupported action \"$1\"" >&2; exit 1;;
@@ -26,37 +30,41 @@ rm -f $logfile
 LOGOPTION="--logfile $logfile"
 
 
-set -x
-
 case $verb in
 build)
+	$0 prepare && $0 create;;
+
+obuild)
 	rm -rf /var/cache/kiwi/packages/da4a5b0de53b179eb79d2dff631b5939
-	rm -rf /tmp/myimage
+	rm -rf $BUILD_BASE
 	kiwi-ng --type oem \
 		$DEBUG $LOGOPTION \
 		system build \
-		--description build-tests/x86/leap/test-image-disk \
+		--description $IMGDIR \
 		$REPOS \
 		$PACKAGES \
-		--target-dir /tmp/myimage;;
+		--target-dir $BUILD_BASE;;
 
 prepare)
-	rm -rf /tmp/myimage/root
+	rm -rf $BUILD_ROOT
 	kiwi-ng --type oem \
 		$DEBUG $LOGOPTION \
 		system prepare \
-		--description build-tests/x86/leap/test-image-disk \
+		--description $IMGDIR \
 		--clear-cache \
 		$REPOS \
 		$PACKAGES \
-		--root /tmp/myimage/root;;
+		--root $BUILD_ROOT;;
 
 create)
+	# This needs to become a package that the .kiwi file references
+	cp firstboot/00fde $BUILD_BASE/root/usr/share/jeos-firstboot/modules/fde
+
 	kiwi-ng --type oem \
 		$DEBUG $LOGOPTION \
 		system create \
-		--root /tmp/myimage/root \
-		--target-dir /tmp/myimage;;
+		--root $BUILD_ROOT \
+		--target-dir $BUILD_BASE;;
 
 *)	echo "Action $verb not implemented" >&2;;
 esac
