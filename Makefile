@@ -12,9 +12,6 @@ install: pcr-oracle
 clean:
 	rm -f pcr-oracle *.o
 
-thing: read_pcr.o
-	$(CC) -o $@ $< $(LINK)
-
 pcr-oracle: oracle.o
 	$(CC) -o $@ $< $(LINK)
 

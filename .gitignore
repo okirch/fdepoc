@@ -2,4 +2,5 @@
 *.swp
 pcr-oracle
 *.bz2
+kiwi*.log
 LOG
