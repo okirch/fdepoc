@@ -1,0 +1,38 @@
+
+This repository contains some preliminary code in support of protecting
+LUKS devices with a FIDO2 token.
+
+Note that this is only useful for recovery, not for everyday use, as
+grub does not (and probably never will) provide a FIDO stack.
+
+
+fde-token is a utility that lets you use a FIDO2 token to derive
+a symmetric, 32 byte encryption key from a LUKS uuid. Beyond this
+utility, no code exists yet.
+
+The way this works is
+
+ 1. you first create a resident credential on the token. This token
+    is tied to some specific "relying party" that identifies the
+    SUSE full disk encryption implementation.
+
+ 2. During firstboot, the FDE framework will check for the presence
+    of a token (fde-token detect). It should then ask the user whether
+    they want to protect the LUKS volume using this token, as an
+    alternative to setting a plain text password.
+
+ 3. If the user so chooses, fde firstboot detects whether a PIN is
+    needed (fde-token check), and if so, prompts the user for it
+
+ 4. Finally, it derives a key using "fde-token get-secret" and
+    adds a LUKS key slot containing this key.
+
+When things break, you can boot into a recovery system. From there, you
+should be able to use fde-token once more to derive the luks key, and
+use that to unlock to volume.
+
+Note: things get a bit fuzzy at this point, as I'm not sure what the
+best recovery strategy would be. The most robust approach would probably
+be to set a temporary password, then reboot into the system, and fix
+things from there. In that case, you will have the correct set of PCRs
+to seal against...

@@ -1,6 +1,7 @@
 *.o
 *.swp
 pcr-oracle
+fde-token
 *.bz2
 kiwi*.log
 LOG

@@ -138,6 +138,9 @@ Implementation notes
    error, and/or decrypting garbage. See the declartion of
    TPM2_SRK_ATTRS in the build script.
 
+ * Note: I've done some experiments with using FIDO2 tokens
+   for protection. That code is nowhere near finished. Please
+   see README.fido2 for some background.
 
 TODO
 

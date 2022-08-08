@@ -1,9 +1,10 @@
 
+CCOPT		= -O0 -g
+CFLAGS		= -Wall -I /usr/include/tss2 $(CCOPT)
+FAPI_LINK	= -ltss2-fapi -lcrypto
+FIDO_LINK	= -lfido2 -lcrypto
 
-CFLAGS	= -Wall -I /usr/include/tss2
-LINK	= -ltss2-fapi -lcrypto
-
-all: pcr-oracle
+all: pcr-oracle fde-token
 
 install: pcr-oracle
 	install -d $(DESTDIR)/bin
@@ -13,7 +14,10 @@ clean:
 	rm -f pcr-oracle *.o
 
 pcr-oracle: oracle.o
-	$(CC) -o $@ $< $(LINK)
+	$(CC) -o $@ $< $(FAPI_LINK)
+
+fde-token: fde-token.o
+	$(CC) -o $@ $< $(FIDO_LINK)
 
 dist:
 	mkdir -p pcr-oracle-0.1
