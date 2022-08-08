@@ -33,7 +33,7 @@ What the PoC does so far, and how to use it:
 
  * When firstboot is complete, try rebooting the machine.
    During bootup, you should see a message from grub that
-   it was able to unseal the key. Booting the system#
+   it was able to unseal the key. Booting the system
    partition should proceed without you being prompted for
    the LUKS pass phrase.
 
@@ -46,7 +46,7 @@ Implementation notes
    and one system partition (including /boot).
 
  * The system partition is set up as LUKS2 volume with a randomly
-   generated 32byte pass key. This should hopefully be good enough
+   generated 128byte pass key. This should hopefully be good enough
    to counterbalance any shortcomings of PBKDF2 (which is the only
    key derivation function that grub2 currently supports)
 
@@ -67,13 +67,8 @@ Implementation notes
    booted.
 
    One approach suggested by Michael Chang is to store the key
-   in a volatile UEFI variable (say, LuksRootKey) and informing
-   systemd/initrd via the kernel command line.
-
-   systemd already recognizes a bunch of rd.luks.* options
-   on the kernel command line; maybe an easy approach might
-   be to extend the syntax of rd.luks.key to understand
-   references to uefi variables (as in rd.luks.key=efivar:LuksRootKey).
+   in a volatile UEFI variable (say, LuksRootKey) and inform
+   initrd via an entry in /etc/crypttab
 
    To test that approach, I modified the tpm key protector
    code in grub to store the LUKS key in a volatile UEFI
@@ -81,7 +76,7 @@ Implementation notes
    I was able to mount the efivarfs, and the LuksRootKey-* variable
    contained the LUKS key in clear text).
    
-   What I did not succeed in doing, however, was teach
+   What I did not succeed in doing, yet, was to teach
    systemd-cryptsetup-generator how to extract the key from that
    file.
 
@@ -155,7 +150,12 @@ TODO
 
  * During first boot, we're being asked twice for the LUKS
    passphrase. Why? There's a /root.key in the initrd
-   that should be picked up via crypttab
+   that should be picked up via crypttab...
+
+ * When booting a grub entry other than the default, or
+   when booting with modified kernel command line, grub
+   should wipe the unsealed LUKS key from memory, and clear
+   the EFI variable to which we exported it.
 
  * Bonus material: clean up the ovmf patches and find out
    why libvirt doesn't the like the OVMF bin images
