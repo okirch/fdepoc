@@ -141,7 +141,10 @@ Implementation notes
 
 TODO
 
- * Cleanup of grub patches (they're a mess right now)
+ * Currently, my grub patch unconditionally adds
+   tpm_record_pcrs to the generated grub.cfg file. It would be
+   cleaner to introduce a command line option to grub2-install and
+   make sure that our tooling adds that option.
 
  * Patch cryptsetup and/or systemd-cryptsetup to recognize
    EFI variables holding a LUKS key
@@ -149,8 +152,10 @@ TODO
  * Make the image building work in OBS
 
  * During first boot, we're being asked twice for the LUKS
-   passphrase. Why? There's a /root.key in the initrd
-   that should be picked up via crypttab...
+   passphrase, once by grub (which is expected) and once
+   by initrd (which is not).
+   There's a /root.key in the initrd that should be picked up
+   via crypttab...
 
  * When booting a grub entry other than the default, or
    when booting with modified kernel command line, grub
@@ -160,3 +165,7 @@ TODO
  * Bonus material: clean up the ovmf patches and find out
    why libvirt doesn't the like the OVMF bin images
    created in home:okir:FDE
+
+DONE
+
+ * Cleanup of grub patches (they're a mess right now)
