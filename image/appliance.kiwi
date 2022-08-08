@@ -2,9 +2,9 @@
 
 <image schemaversion="7.4" name="alp-fde-demo">
     <description type="system">
-        <author>Marcus Schäfer</author>
-        <contact>ms@suse.com</contact>
-        <specification>Disk test build</specification>
+        <author>Olaf Kirch</author>
+        <contact>okir@suse.com</contact>
+        <specification>Full Disk Encryption Demo image</specification>
     </description>
     <preferences>
         <version>1.15.3</version>
@@ -23,7 +23,7 @@
 		btrfs_root_is_snapshot="true" installboot="install">
             <bootloader name="grub2" console="serial" timeout="10"/>
             <oemconfig>
-                <oem-unattended>false</oem-unattended>
+                <oem-unattended>true</oem-unattended>
                 <oem-swapsize>1024</oem-swapsize>
                 <oem-multipath-scan>false</oem-multipath-scan>
             </oemconfig>
@@ -71,7 +71,7 @@
         <package name="timezone"/>
         <package name="dracut-kiwi-oem-repart"/>
         <package name="dracut-kiwi-oem-dump"/>
-        <package name="jeos-firstboot"/>
+	<package name="jeos-firstboot"/>
 	<package name="live-add-yast-repos"/>
 	<package name="snapper"/>
 
@@ -85,9 +85,6 @@
 	<package name="pcr-oracle"/>
 
 	<package name="strace"/>
-	<!-- 
-	<archive name="/work/projects/tss/dracut-luks-tpm2.tar"/>
-	 -->
     </packages>
     <packages type="bootstrap">
         <package name="udev"/>
