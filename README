@@ -169,6 +169,10 @@ TODO
    why libvirt doesn't the like the OVMF bin images
    created in home:okir:FDE
 
+ * In kiwi, never attempt to kexec into the installed
+   system when FDE is in use. Otherwise, firstboot
+   will see completely bogus PCR values.
+
 DONE
 
  * Cleanup of grub patches (they're a mess right now)
