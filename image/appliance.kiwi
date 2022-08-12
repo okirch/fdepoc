@@ -26,6 +26,7 @@
                 <oem-unattended>false</oem-unattended>
                 <oem-swapsize>1024</oem-swapsize>
                 <oem-multipath-scan>false</oem-multipath-scan>
+                <oem-reboot-interactive>true</oem-reboot-interactive>
             </oemconfig>
             <systemdisk>
                 <volume name="home"/>
