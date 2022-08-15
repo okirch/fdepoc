@@ -25,6 +25,13 @@
 test -f /.kconfig && . /.kconfig
 test -f /.profile && . /.profile
 
+#======================================
+# This is a workaround - someone,
+# somewhere needs to load the xts crypto
+# module, otherwise luksOpen will fail
+#--------------------------------------
+modprobe xts
+
 set -euxo pipefail
 
 #======================================
