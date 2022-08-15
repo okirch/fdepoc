@@ -82,7 +82,7 @@
 	<package name="libtss2-tcti-device0"/>
 	<package name="tpm2.0-tools"/>
 	<package name="tpm2-0-tss"/>
-	<package name="pcr-oracle"/>
+	<package name="fde-tools"/>
 
 	<package name="strace"/>
     </packages>

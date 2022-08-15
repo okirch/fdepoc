@@ -1,26 +1,38 @@
+PKGNAME		= fde-tools-0.1
 
 CCOPT		= -O0 -g
+FIRSTBOOTDIR	= /usr/share/jeos-firstboot
 CFLAGS		= -Wall -I /usr/include/tss2 $(CCOPT)
 FAPI_LINK	= -ltss2-fapi -lcrypto
 FIDO_LINK	= -lfido2 -lcrypto
+TOOLS		= pcr-oracle fde-token
 
-all: pcr-oracle fde-token
+all: $(TOOLS)
 
-install: pcr-oracle
+install:: $(TOOLS)
 	install -d $(DESTDIR)/bin
-	install -m 755 pcr-oracle $(DESTDIR)/bin
+	install -m 755 $(TOOLS) $(DESTDIR)/bin
+
+install::
+	mkdir -p $(DESTDIR)$(FIRSTBOOTDIR)/modules
+	cp firstboot/00fde $(DESTDIR)$(FIRSTBOOTDIR)/modules/fde
 
 clean:
-	rm -f pcr-oracle *.o
+	rm -f $(TOOLS)
+	rm -rf build
 
-pcr-oracle: oracle.o
+pcr-oracle: build/oracle.o
 	$(CC) -o $@ $< $(FAPI_LINK)
 
-fde-token: fde-token.o
+fde-token: build/fde-token.o
 	$(CC) -o $@ $< $(FIDO_LINK)
 
+build/%.o: src/%.c
+	@mkdir -p build
+	$(CC) -o $@ $(CFLAGS) -c $<
+
 dist:
-	mkdir -p pcr-oracle-0.1
-	cp Makefile *.c pcr-oracle-0.1
-	tar cvjf pcr-oracle-0.1.tar.bz2 pcr-oracle-0.1/*
-	rm -rf pcr-oracle-0.1
+	mkdir -p $(PKGNAME)
+	cp -a Makefile src firstboot $(PKGNAME)
+	tar cvjf $(PKGNAME).tar.bz2 $(PKGNAME)/*
+	rm -rf $(PKGNAME)
