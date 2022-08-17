@@ -527,7 +527,7 @@ tpm2_key_protector_init -b $FDE_SEAL_PCR_BANK -p $FDE_SEAL_PCR_LIST -k \$prefix/
 if ! $orig_cmd -k tpm2; then
     $orig_cmd
 fi
-tpm2_key_protector_exit
+tpm2_key_protector_clear
 
 EOF
 }
