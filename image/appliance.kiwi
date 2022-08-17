@@ -21,7 +21,7 @@
 		luks="1234"
 		firmware="uefi" installiso="true" bootpartition="false" 
 		btrfs_root_is_snapshot="true" installboot="install">
-            <bootloader name="grub2" console="serial" timeout="10"/>
+            <bootloader name="grub2" console="serial" timeout="10" use_disk_password="true"/>
             <oemconfig>
                 <oem-unattended>true</oem-unattended>
                 <oem-swapsize>1024</oem-swapsize>
