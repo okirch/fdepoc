@@ -26,6 +26,10 @@
                 <oem-unattended>true</oem-unattended>
                 <oem-swapsize>1024</oem-swapsize>
                 <oem-multipath-scan>false</oem-multipath-scan>
+		<!-- cannot kexec. 1. this fails right now; and 2. we would end up with totally
+		     random PCR values in firstboot, which would throw our key sealing off the
+		     rails. -->
+		<oem-reboot>true</oem-reboot>
             </oemconfig>
             <systemdisk>
                 <volume name="home"/>
