@@ -57,9 +57,6 @@ prepare)
 		--root $BUILD_ROOT;;
 
 create)
-	# This needs to become a package that the .kiwi file references
-	cp firstboot/00fde $BUILD_BASE/root/usr/share/jeos-firstboot/modules/fde
-
 	kiwi-ng --type oem \
 		$DEBUG $LOGOPTION \
 		system create \
