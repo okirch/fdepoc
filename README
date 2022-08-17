@@ -12,8 +12,9 @@ What the PoC does so far, and how to use it:
 	./mkimage create
    This will use kiwi to create an OEM image
 
-   This image will contain a LUKS encrypted system partition.
-   The fallback password for the LUKS partition is "1234".
+   This image will contain a LUKS encrypted system partition, protected
+   by a random key and a fallback password of "" (ie empty password).
+
    The root password is "traum"
 
  * As root, run
@@ -21,7 +22,12 @@ What the PoC does so far, and how to use it:
    This will start the installation workflow. Use virt-manager to
    locate the VM being installed, and connect to it.
 
- * You will be prompted twice for the LUKS pass phrase.
+ * The installer will dump the system image onto hard disk, creating
+   a separate EFI partition. It reboots in order to fire up the newly
+   installed system.
+
+ * Booting into the new sytem should work without you having to
+   enter any LUKS passphrase.
 
  * The system goes through firstboot and massages the LUKS
    setup. Among other things, it re-encrypts the system
@@ -32,10 +38,10 @@ What the PoC does so far, and how to use it:
    Typing anything else will destroy your hardware.
 
  * When firstboot is complete, try rebooting the machine.
-   During bootup, you should see a message from grub that
-   it was able to unseal the key. Booting the system
-   partition should proceed without you being prompted for
-   the LUKS pass phrase.
+   During bootup, you should see a message from grub that was
+   able to unseal the key using the TPM chip. Booting the system
+   partition should proceed without you being prompted for the LUKS
+   pass phrase.
 
  * Voila!
 
@@ -66,24 +72,13 @@ Implementation notes
  * grub needs to pass the unsealed key to the kernel being
    booted.
 
-   One approach suggested by Michael Chang is to store the key
-   in a volatile UEFI variable (say, LuksRootKey) and inform
-   initrd via an entry in /etc/crypttab
+   It currently does that using an approach implemented by
+   Michael Chang: when loading the initrd into memory, grub
+   simply adds a file that contains the unsealed key. This
+   file is referenced by /etc/crypttab.
 
-   To test that approach, I modified the tpm key protector
-   code in grub to store the LUKS key in a volatile UEFI
-   variable, which works (so from the dracut emergency prompt,
-   I was able to mount the efivarfs, and the LuksRootKey-* variable
-   contained the LUKS key in clear text).
-   
-   What I did not succeed in doing, yet, was to teach
-   systemd-cryptsetup-generator how to extract the key from that
-   file.
-
-   So for the time being, the installed system contains a
-   clear-text copy of a LUKS key in /.root.keyfile, which
-   ends up in the initrd and is used to open the LUKS
-   device.
+   Once Linux pivots into the actual system, the initrd is destroyed
+   and the LUKS key is no longer accessible.
 
  * IF the user boots anything other than the default kernel
    entry from grub.cfg with the default set of command line
@@ -96,28 +91,6 @@ Implementation notes
    full disk encryption is in effect. If the user ever needs to
    roll back, boot a kernel in debug mode etc, they would have
    to boot through a rescue partition instead.
-
- * caveat: we ought to seal against PCR 9, because we need to
-   detect modifications to grub.cfg in the EFI boot
-   partition. However, there's currently a catch-22, because
-   grub also measures the sealed key when it reads it
-   from file. So in order to predict PCR 9 and seal against
-   that value, we'd have to know the hash of the sealed key.
-   That's chicken and egg...
-
-   So the grub key protector stuff needs to be fixed in
-   the way that we do not measure the contents of the
-   sealed key file when loading it.
-
-   [Alternatively, we could seal against PCR 8, which
-   measures the grub commands being executed. But that
-   is somewhat brittle in that grub doesn't measure the
-   commands it reads from file, but after parsing and
-   variable expansion. So when grub.cfg has a line saying
-      echo "boot dev ($root)"
-   grub ends up measuring something like
-      echo boot dev (hd1,gpt2)
-   ]
 
  * When sealing a secret such as the key for the LUKS
    key slot, the tpm2 tools produce a public and a
@@ -144,21 +117,15 @@ Implementation notes
 
 TODO
 
- * Currently, my grub patch unconditionally adds
-   tpm_record_pcrs to the generated grub.cfg file. It would be
-   cleaner to introduce a command line option to grub2-install and
-   make sure that our tooling adds that option.
+ * Make grub's key protector recognize unencrypted LUKS
+   volumes and/or a LUKS volume with empty key
 
- * Patch cryptsetup and/or systemd-cryptsetup to recognize
-   EFI variables holding a LUKS key
+   Pass the default pin via cryptomount --password so that
+   the user no longer has to enter any password during initial
+   boot.
 
- * Make the image building work in OBS
-
- * During first boot, we're being asked twice for the LUKS
-   passphrase, once by grub (which is expected) and once
-   by initrd (which is not).
-   There's a /root.key in the initrd that should be picked up
-   via crypttab...
+ * random LUKS keys do not require expensive pbkdf. That
+   just increases boot times by 5-10 sec
 
  * When booting a grub entry other than the default, or
    when booting with modified kernel command line, grub
@@ -169,10 +136,34 @@ TODO
    why libvirt doesn't the like the OVMF bin images
    created in home:okir:FDE
 
- * In kiwi, never attempt to kexec into the installed
-   system when FDE is in use. Otherwise, firstboot
-   will see completely bogus PCR values.
+ * Currently, my grub patch unconditionally adds
+   tpm_record_pcrs to the generated grub.cfg file. It would be
+   cleaner to introduce a command line option to grub2-install and
+   make sure that our tooling adds that option.
 
 DONE
 
  * Cleanup of grub patches (they're a mess right now)
+
+ * Make the image building work in OBS
+
+ * Patch cryptsetup and/or systemd-cryptsetup to recognize
+   EFI variables holding a LUKS key.
+
+   SOLVED with Michael Chang's patch that adds the key
+   to initrd on the fly.
+
+ * During first boot, we're being asked twice for the LUKS
+   passphrase, once by grub (which is expected) and once
+   by initrd (which is not).
+   There's a /root.key in the initrd that should be picked up
+   via crypttab...
+
+   SOLVED with Michael Chang's patch that adds the key
+   to initrd on the fly.
+
+ * In kiwi, never attempt to kexec into the installed
+   system when FDE is in use. Otherwise, firstboot
+   will see completely bogus PCR values.
+
+   SOLVED: set oem-reboot to true in kiwi
