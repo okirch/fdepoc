@@ -196,6 +196,20 @@ function luks_drop_pass {
     return 0
 }
 
+function luks_drop_key {
+
+    local luks_dev=$1
+    local luks_keyfile="$2"
+
+    fde_infobox "Dropping old LUKS key"
+    if ! cryptsetup luksRemoveKey "${luks_dev}" ${luks_keyfile}; then
+	echo "Warning: luksRemoveKey indicates failure" >&2
+	return 1
+    fi
+
+    return 0
+}
+
 function luks_change_password {
 
     local luks_dev=$1
@@ -240,6 +254,16 @@ function luks_add_password {
     fi
 
     rm -f ${new_keyfile}
+}
+
+function luks_add_random_key {
+
+    local luks_dev="$1"
+    local luks_keyfile="$2"
+    local new_keyfile="$3"
+
+    dd if=/dev/random bs=1 count=$FDE_KEY_SIZE_BYTES of=$new_keyfile
+    cryptsetup --key-file "${luks_keyfile}" luksAddKey --pbkdf pbkdf2 $luks_dev $new_keyfile
 }
 
 function luks_set_random_key {
@@ -664,16 +688,42 @@ function fde_setup_encrypted {
 	with_pass=false
     fi
 
-    luks_reencrypt "${luks_dev}" "${luks_keyfile}"
+    # "cryptsetup reencrypt" requires to specify the key slot number (--key-slot) if
+    # there are multiple key slots and only the specified key slot will survive after
+    # reencryption. There are two key slots already in the partition: one for the
+    # password and the other one for the random key. To avoid the additional key slot
+    # parameter, drop the old random key if the user chooses a recovery password.
+    # Otherwise, drop the password key slot.
+    if $with_pass; then
+        # Drop the random key slot and use the password for reencryption
+        if ! luks_drop_key "${luks_dev}" "${luks_keyfile}"; then
+            fde_error "Failed to remove initial random key"
+            return 1
+        fi
+
+        # Reencrypt with the new password
+        pass_keyfile=$(luks_write_password pass "${result_password}")
+        luks_reencrypt "${luks_dev}" "${pass_keyfile}"
+
+        # Generate a random key again
+        luks_add_random_key "${luks_dev}" "${pass_keyfile}" "${luks_keyfile}"
+
+        # Remove the password file
+        rm -f ${pass_keyfile}
+    else
+        # Drop the password key slot and use the random key for reencryption
+        if ! luks_drop_pass "${luks_dev}" "${luks_recovery_pass}"; then
+            fde_error "Failed to remove initial password"
+            return 1
+        fi
+
+        # Reencrypt with the old random key
+        luks_reencrypt "${luks_dev}" "${luks_keyfile}"
+    fi
 
     if $with_tpm && ! fde_protect_tpm "${luks_dev}" "${luks_keyfile}"; then
 	fde_error "Failed to protect encrypted volume with TPM"
 	with_tpm=false
-    fi
-
-    if ! $with_pass && ! luks_drop_pass "${luks_dev}" "${luks_recovery_pass}"; then
-	fde_error "Failed to remove initial password"
-	return 1
     fi
 
     if $with_pass || $with_tpm || $with_ccid; then
