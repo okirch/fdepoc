@@ -79,9 +79,9 @@ function __get_root_dev {
 
 function luks_get_underlying_device {
 
-    luks_name=$1
+    local luks_name=$1
 
-    luks_dev=""
+    local luks_dev=""
     for id in $(ls /sys/block); do
 	test -f "/sys/block/$id/dm/name" || continue
 	dm_name=$(cat "/sys/block/$id/dm/name")
@@ -182,7 +182,7 @@ function luks_write_password {
 
 function luks_drop_pass {
 
-    luks_dev=$1
+    local luks_dev=$1
     old_pass="$2"
 
     fde_infobox "Dropping old recovery password"
@@ -198,8 +198,8 @@ function luks_drop_pass {
 
 function luks_change_password {
 
-    luks_dev=$1
-    luks_old_password="$2"
+    local luks_dev=$1
+    local luks_old_password="$2"
 
     request_password "Please enter new LUKS recovery password."
     if [ -z "$result_password" ]; then
@@ -222,8 +222,8 @@ function luks_change_password {
 
 function luks_add_password {
 
-    luks_dev=$1
-    luks_keyfile="$2"
+    local luks_dev=$1
+    local luks_keyfile="$2"
 
     request_password "Please enter new LUKS recovery password."
     if [ -z "$result_password" ]; then
@@ -244,8 +244,8 @@ function luks_add_password {
 
 function luks_set_random_key {
 
-    luks_dev="$1"
-    luks_keyfile="$2"
+    local luks_dev="$1"
+    local luks_keyfile="$2"
 
     new_keyfile=/.tpm2.keyfile
     dd if=/dev/random bs=1 count=$FDE_KEY_SIZE_BYTES of=$new_keyfile
@@ -264,8 +264,8 @@ function luks_set_random_key {
 
 function luks_reencrypt {
 
-    luks_dev="$1"
-    luks_keyfile="$2"
+    local luks_dev="$1"
+    local luks_keyfile="$2"
 
     # Online reencryption works with LUKS2 only. If we ever want to do FDE with luks1,
     # we need to perform reencryption during installation, after dd'ing the image to
@@ -609,8 +609,8 @@ function fde_update_grub {
 
 function fde_protect_tpm {
 
-    luks_dev=$1
-    luks_keyfile=$2
+    local luks_dev=$1
+    local luks_keyfile=$2
 
     luks_set_random_key "${luks_dev}" "${luks_keyfile}"
 
