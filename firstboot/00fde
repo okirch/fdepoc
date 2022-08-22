@@ -55,7 +55,7 @@ function fde_make_tempfile {
 ##################################################################
 function fde_error {
 
-    d --title ERROR --infobox "$*" 5 40
+    d --title ERROR --msgbox "$*" 5 40
 }
 
 function fde_infobox {
