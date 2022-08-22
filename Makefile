@@ -15,7 +15,7 @@ install:: $(TOOLS)
 
 install::
 	mkdir -p $(DESTDIR)$(FIRSTBOOTDIR)/modules
-	cp firstboot/00fde $(DESTDIR)$(FIRSTBOOTDIR)/modules/fde
+	cp firstboot/fde $(DESTDIR)$(FIRSTBOOTDIR)/modules/fde
 
 clean:
 	rm -f $(TOOLS)
