@@ -7,7 +7,7 @@
         <specification>Full Disk Encryption Demo image</specification>
     </description>
     <preferences>
-        <version>1.15.3</version>
+        <version>1.15.4</version>
         <packagemanager>zypper</packagemanager>
         <locale>en_US</locale>
         <keytable>de</keytable>
