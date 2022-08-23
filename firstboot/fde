@@ -242,7 +242,14 @@ function luks_set_random_key {
 
     new_keyfile=/.tpm2.keyfile
     dd if=/dev/random bs=1 count=$FDE_KEY_SIZE_BYTES of=$new_keyfile
-    cryptsetup --key-file "${luks_keyfile}" luksChangeKey --pbkdf pbkdf2 $luks_dev $new_keyfile
+
+    # Note: we try to reduce the cost of PBKDF to (almost) nothing.
+    # There's no need in slowing down this operation for a
+    # key that was random to begin with.
+    cryptsetup --key-file "${luks_keyfile}" luksChangeKey \
+		--pbkdf pbkdf2 --pbkdf-force-iterations 1000 \
+		$luks_dev $new_keyfile
+
     cp $new_keyfile "${luks_keyfile}"
     rm -f $new_keyfile
 
