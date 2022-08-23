@@ -578,7 +578,7 @@ function fde_update_grub {
     mv $grub_cfg_file.new $grub_cfg_file
 }
 
-function fde_setup2 {
+function fde_setup_encrypted {
 
     root_dev=$1
     luks_keyfile="$2"
@@ -623,6 +623,60 @@ function fde_setup2 {
     mkinitrd >&2
 }
 
+function get_efivar_binary_byte {
+
+    name="$1"
+    path="/sys/firmware/efi/vars/$name/data"
+    if [ ! -f "$path" ]; then
+	echo "n/a"
+    else
+	cat "$path" | tr '\0\1' '01'
+    fi
+}
+
+function fde_check_platform {
+
+    if ! tpm2_selftest -V -f; then
+	fde_error "This system does not have a TPM2 chip. Full disk encryption not available"
+	return 1
+    fi
+
+    if ! [ -d /sys/firmware/efi ]; then
+	fde_error "This system does not seem to use UEFI. Full disk encryption not available"
+	return 1
+    fi
+
+    secure_boot=$(get_efivar_binary_byte SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c)
+    setup_mode=$(get_efivar_binary_byte SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c)
+    if [ "$secure_boot" != 1 -a "$setup_mode" != 0 ]; then
+	echo "Secure Boot not enabled (secure_boot=$secure_boot; setup_mode=$setup_mode)" >&2
+	fde_error "This system does not seem to use Secure Boot. Full disk encryption not available"
+	return 1
+    fi
+
+    return 0
+}
+
+function fde_firstboot {
+
+    if ! fde_check_platform; then
+	fde_setup_unencrypted "$@"
+	return
+    fi
+
+    msg="This system is capable of supporting Full Disk Encryption for the system partition. Do you want to enable this?"
+    if ! d --title "Full Disk Encryption" --yesno "$msg" 8 40; then
+	fde_setup_unencrypted "$@"
+	return
+    fi
+
+    if ! fde_setup_encrypted "$@"; then
+	fde_error "Failed to set up for full disk encryption. Trying to recover"
+	fde_setup_unencrypted "$@"
+	return
+    fi
+}
+
 function foo {
 
     # it appears that the 128 is the maximum size of what TPM2_Load is willing to handle
@@ -641,7 +695,7 @@ function fde_systemd_firstboot {
 
     # FIXME: rather than hard-coding the recovery password here,
     # have kiwi write it to /.root.something and read it from there
-    fde_setup2 $(__get_root_dev) /.root.keyfile "1234" 2>/var/log/fde-firstboot.log
+    fde_firstboot $(__get_root_dev) /.root.keyfile "1234" 2>/var/log/fde-firstboot.log
 }
 
 function fde_post {
