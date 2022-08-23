@@ -1,6 +1,6 @@
 #!/bin/bash
 
-KIWI_BUILD_RESULT=/tmp/myimage/alp-fde-demo.x86_64-1.15.3.install.iso
+KIWI_BUILD_RESULT=/tmp/myimage/alp-fde-demo.x86_64-1.15.4.install.iso
 
 SYSTEM_IMAGE=/tmp/build/system-image
 SYSTEM_IMAGE_SIZE=2048
