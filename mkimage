@@ -58,11 +58,11 @@ prepare)
 
 create)
 	FDE_SCRIPT="$BUILD_BASE/root/usr/share/jeos-firstboot/modules/fde"
-	if ! cmp -s firstboot/fde  $FDE_SCRIPT; then
+	if ! cmp -s firstboot/fde $FDE_SCRIPT; then
 		echo "***********"
 		echo "FDE firstboot script changed, overwriting"
+		cp -v firstboot/fde $FDE_SCRIPT
 		echo "***********"
-		cp firstboot/fde $FDE_SCRIPT
 	fi
 
 	kiwi-ng --type oem \
