@@ -619,6 +619,12 @@ function fde_setup_encrypted {
     # ... then seal the key against a PCR9 value that covers grub.cfg
     tpm_seal_secret "${luks_keyfile}" "${efi_grub_dir}" "$efi_grub_dir/sealed.key"
 
+    # Normally, kiwi wants to keep the "key" that unlocks LUKS in /.root.keyfile.
+    # However, since we're protecting that key with the TPM now, there's no
+    # need to keep a secret bit of data around as clear-text, copying it into
+    # initrd and potentially leaking it.
+    rm -f "${luks_keyfile}"
+
     fde_infobox "Re-creating initial ramdisk"
     mkinitrd >&2
 }
