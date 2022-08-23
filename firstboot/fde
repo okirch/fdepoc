@@ -40,8 +40,8 @@ function fde_clean_tempdir {
     declare -g FDE_TEMP_DIR
 
     if [ -n "$FDE_TEMP_DIR" ]; then
-    	rm -rf $FDE_TEMP_DIR
-    	unset FDE_TEMP_DIR
+	rm -rf $FDE_TEMP_DIR
+	unset FDE_TEMP_DIR
     fi
 }
 
@@ -78,7 +78,7 @@ function luks_get_underlying_device {
 
     luks_dev=""
     for id in $(ls /sys/block); do
-    	test -f "/sys/block/$id/dm/name" || continue
+	test -f "/sys/block/$id/dm/name" || continue
 	dm_name=$(cat "/sys/block/$id/dm/name")
 	test "$dm_name" = "$luks_name" || continue
 
@@ -140,7 +140,7 @@ function request_password {
     while [ $attempt -lt 3 ]; do
 	let attempt+=1
 
-    	fde_infobox "About to request password (#$attempt)"
+	fde_infobox "About to request password (#$attempt)"
 	if ! d $nocancel --insecure --passwordbox "${prompt}" 8 50; then
 	    # cancelling the dialog means "I don't want to set this password"
 	    echo "${defpass}"
@@ -567,7 +567,7 @@ function fde_update_grub {
     grub_cfg_file="${grub_dir}/grub.cfg"
 
     cat $grub_cfg_file | while read line; do
-    	case "$line" in 
+	case "$line" in
 	*cryptomount*)
 	    fde_frob_cryptomount_command $line;;
 	*)
@@ -604,7 +604,7 @@ function fde_setup2 {
     # Change the built-in recovery password to the one provided by the user
     if ! luks_change_password "${luks_dev}" "${luks_recovery_pass}"; then
 	fde_error "Failed to change recovery password."
-    	return 1
+	return 1
     fi
 
     luks_reencrypt "${luks_dev}" "${luks_keyfile}"
