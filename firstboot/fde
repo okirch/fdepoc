@@ -55,13 +55,18 @@ function fde_make_tempfile {
 ##################################################################
 function fde_error {
 
-    d --title ERROR --msgbox "$*" 5 40
+    d --title ERROR --msgbox "$*" 8 60
 }
 
 function fde_infobox {
 
     d --infobox "$*" 5 40
 
+}
+
+function fde_trace {
+
+    echo "$*" >&2
 }
 
 ##################################################################
@@ -183,10 +188,12 @@ function luks_drop_pass {
     fde_infobox "Dropping old recovery password"
     old_keyfile=$(luks_write_password oldpass "${old_pass}")
     if ! cryptsetup luksRemoveKey "${luks_dev}" ${old_keyfile}; then
-	echo "Warning: luksRemoveKey indicates failure" >&2
+	fde_trace "Warning: luksRemoveKey indicates failure"
+	return 1
     fi
 
     rm -f ${old_keyfile}
+    return 0
 }
 
 function luks_change_password {
@@ -268,6 +275,21 @@ function luks_reencrypt {
 	    sed -u 's/.* \([0-9]*\)[0-9.]*%.*/\1/'
 	    echo 100
     } | d --gauge "Reencrypting LUKS device $luks_dev" 7 40
+}
+
+function luks_decrypt {
+
+    luks_dev="$1"
+    luks_keyfile="$2"
+
+    # Online reencryption works with LUKS2 only. If we ever want to do FDE with luks1,
+    # we need to perform reencryption during installation, after dd'ing the image to
+    # disk and prior to mounting it.
+    {
+	cryptsetup reencrypt -decrypt --key-file "$luks_keyfile" --progress-frequency 1 $luks_dev 2>&1|
+	    sed -u 's/.* \([0-9]*\)[0-9.]*%.*/\1/'
+	    echo 100
+    } | d --gauge "Decrypting LUKS device $luks_dev" 7 40
 }
 
 ##################################################################
@@ -585,7 +607,97 @@ function fde_update_grub {
     mv $grub_cfg_file.new $grub_cfg_file
 }
 
+function fde_protect_tpm {
+
+    luks_dev=$1
+    luks_keyfile=$2
+
+    luks_set_random_key "${luks_dev}" "${luks_keyfile}"
+
+    efi_grub_dir=/boot/efi/EFI/BOOT
+
+    # First update grub.cfg...
+    fde_update_grub "$efi_grub_dir" sealed.key
+
+    # ... then seal the key against a PCR9 value that covers grub.cfg
+    tpm_seal_secret "${luks_keyfile}" "${efi_grub_dir}" "$efi_grub_dir/sealed.key"
+}
+
 function fde_setup_encrypted {
+
+    root_dev=$1
+    luks_keyfile="$2"
+    luks_recovery_pass="$3"
+
+    with_pass=false
+    with_tpm=false
+    with_ccid=false
+
+    for method in $FDE_PROTECTION; do
+    	case $method in
+	pass) with_pass=true;;
+	tpm)  with_tpm=true;;
+	ccid) with_ccid=true;;
+	esac
+    done
+
+    if ! [[ "$root_dev" =~ /dev/mapper/.* ]]; then
+	fde_error "root device $root_dev does not look like a dm device"
+        return 1
+    fi
+
+    luks_name=$(expr "$root_dev" : ".*/\(.*\)")
+    luks_dev=$(luks_get_underlying_device "$luks_name")
+    if [ -z "$luks_dev" ]; then
+        fde_error "Unable to determine underlying LUKS device for $root_dev"
+	return 1
+    fi
+
+    if $with_tpm && ! tpm_test $FDE_KEY_SIZE_BYTES; then
+	fde_error "TPM key sealing and unsealing does not seem to work"
+	return 1
+    fi
+
+    # Change the built-in recovery password to the one provided by the user
+    if $with_pass && ! luks_change_password "${luks_dev}" "${luks_recovery_pass}"; then
+	fde_error "Failed to change recovery password."
+	with_pass=false
+    fi
+
+    luks_reencrypt "${luks_dev}" "${luks_keyfile}"
+
+    if $with_tpm && ! fde_protect_tpm "${luks_dev}" "${luks_keyfile}"; then
+	fde_error "Failed to protect encrypted volume with TPM"
+	with_tpm=false
+    fi
+
+    if ! $with_pass && ! luks_drop_pass "${luks_dev}" "${luks_recovery_pass}"; then
+	fde_error "Failed to remove initial password"
+	return 1
+    fi
+
+    if $with_pass || $with_tpm || $with_ccid; then
+    	: all is well
+    else
+	return 1
+    fi
+
+    # Normally, kiwi wants to keep the "key" that unlocks LUKS in /.root.keyfile.
+    # However, since we're protecting that key with the TPM now, there's no
+    # need to keep a secret bit of data around as clear-text, copying it into
+    # initrd and potentially leaking it.
+    rm -f "${luks_keyfile}"
+
+    fde_infobox "Re-creating initial ramdisk"
+    if ! mkinitrd >&2; then
+    	fde_error "Failed to rebuild initrd"
+	return 1
+    fi
+
+    return 0
+}
+
+function fde_setup_unencrypted {
 
     root_dev=$1
     luks_keyfile="$2"
@@ -603,38 +715,20 @@ function fde_setup_encrypted {
 	return 1
     fi
 
-    if ! tpm_test $FDE_KEY_SIZE_BYTES 2>/var/log/fde.log; then
-	fde_error "Failed to seal LUKS encryption key."
-	return 1
-    fi
+    luks_decrypt "${luks_dev}" "${luks_keyfile}"
 
-    # Change the built-in recovery password to the one provided by the user
-    if ! luks_change_password "${luks_dev}" "${luks_recovery_pass}"; then
-	fde_error "Failed to change recovery password."
-	return 1
-    fi
-
-    luks_reencrypt "${luks_dev}" "${luks_keyfile}"
-
-    luks_set_random_key "${luks_dev}" "${luks_keyfile}"
-
-    efi_grub_dir=/boot/efi/EFI/BOOT
-
-    # First update grub.cfg...
-    fde_update_grub "$efi_grub_dir" sealed.key
-
-    # ... then seal the key against a PCR9 value that covers grub.cfg
-    tpm_seal_secret "${luks_keyfile}" "${efi_grub_dir}" "$efi_grub_dir/sealed.key"
-
-    # Normally, kiwi wants to keep the "key" that unlocks LUKS in /.root.keyfile.
-    # However, since we're protecting that key with the TPM now, there's no
-    # need to keep a secret bit of data around as clear-text, copying it into
-    # initrd and potentially leaking it.
     rm -f "${luks_keyfile}"
+    rm -f /etc/crypttab
 
     fde_infobox "Re-creating initial ramdisk"
-    mkinitrd >&2
+    if ! mkinitrd >&2; then
+    	fde_error "Failed to rebuild initrd"
+	return 1
+    fi
+
+    return 0
 }
+
 
 function get_efivar_binary_byte {
 
@@ -647,47 +741,103 @@ function get_efivar_binary_byte {
     fi
 }
 
-function fde_check_platform {
+function fde_platform_is_tpm_capable {
 
     if ! tpm2_selftest -V -f; then
-	fde_error "This system does not have a TPM2 chip. Full disk encryption not available"
+	fde_trace "This system does not have a TPM2 chip. Full disk encryption not available"
 	return 1
     fi
 
     if ! [ -d /sys/firmware/efi ]; then
-	fde_error "This system does not seem to use UEFI. Full disk encryption not available"
+	fde_trace "This system does not seem to use UEFI. Full disk encryption not available"
 	return 1
     fi
 
     secure_boot=$(get_efivar_binary_byte SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c)
     setup_mode=$(get_efivar_binary_byte SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c)
     if [ "$secure_boot" != 1 -a "$setup_mode" != 0 ]; then
-	echo "Secure Boot not enabled (secure_boot=$secure_boot; setup_mode=$setup_mode)" >&2
-	fde_error "This system does not seem to use Secure Boot. Full disk encryption not available"
+	fde_trace "Secure Boot not enabled (secure_boot=$secure_boot; setup_mode=$setup_mode)"
+	fde_trace "This system does not seem to use Secure Boot. Full disk encryption not available"
 	return 1
     fi
 
     return 0
 }
 
+function __fde_valid_protections {
+
+    for tag in $*; do
+        case $tag in
+        pass|tpm) : ;;
+        *)
+	    fde_error "FDE key protection scheme $tag not yet implemented"
+	    fde_error "$*"
+	    return 1;;
+        esac
+    done
+
+    return 0
+}
+
+##################################################################
+# Check what protection method the system supports and let the
+# user choose.
+# The ccid thing is there just as a teaser for now :-)
+##################################################################
+function fde_choose_protection {
+
+    declare -g FDE_PROTECTION
+    declare -a options
+
+    FDE_PROTECTION=""
+
+    message="ALP can be installed with an encrypted root and boot partition. Please choose the desired protection method(s) or press Cancel to install without encryption"
+    options+=(pass 'Pass phrase' on)
+
+    if fde_platform_is_tpm_capable; then
+    	options+=(tpm 'Stored inside the TPM chip' on)
+    fi
+
+    options+=(ccid 'Stored inside a CCID capable token' off)
+
+    while true; do
+        d --title "Full Disk Encryption" --checklist \
+			"$message" 12 74 4 \
+			"${options[@]}"
+
+	if [ $? -ne 0 ]; then
+	    FDE_PROTECTION=""
+	    return 1
+	fi
+
+	FDE_PROTECTION="$result"
+	fde_trace "user selected protections: <$FDE_PROTECTION>"
+
+	if [ -z "$FDE_PROTECTION" ]; then
+	    break
+	fi
+
+	if __fde_valid_protections $FDE_PROTECTION; then
+	    break
+	fi
+    done
+
+    # return false if the user declined encryption
+    test "$FDE_PROTECTION" != ""
+}
+
 function fde_firstboot {
 
-    if ! fde_check_platform; then
-	fde_setup_unencrypted "$@"
-	return
-    fi
+    set -x
+    if fde_choose_protection; then
+	if fde_setup_encrypted "$@"; then
+	    return 0
+	fi
 
-    msg="This system is capable of supporting Full Disk Encryption for the system partition. Do you want to enable this?"
-    if ! d --title "Full Disk Encryption" --yesno "$msg" 8 40; then
-	fde_setup_unencrypted "$@"
-	return
-    fi
-
-    if ! fde_setup_encrypted "$@"; then
 	fde_error "Failed to set up for full disk encryption. Trying to recover"
-	fde_setup_unencrypted "$@"
-	return
     fi
+
+    fde_setup_unencrypted "$@"
 }
 
 function foo {
@@ -709,6 +859,8 @@ function fde_systemd_firstboot {
     # FIXME: rather than hard-coding the recovery password here,
     # have kiwi write it to /.root.something and read it from there
     fde_firstboot $(__get_root_dev) /.root.keyfile "1234" 2>/var/log/fde-firstboot.log
+
+    set +x
 }
 
 function fde_post {
