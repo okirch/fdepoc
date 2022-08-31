@@ -821,7 +821,6 @@ function __fde_valid_protections {
         pass|tpm) : ;;
         *)
 	    fde_error "FDE key protection scheme $tag not yet implemented"
-	    fde_error "$*"
 	    return 1;;
         esac
     done
@@ -832,6 +831,7 @@ function __fde_valid_protections {
 ##################################################################
 # Check what protection method the system supports and let the
 # user choose.
+# returns false if the user declined device encryption
 # The ccid thing is there just as a teaser for now :-)
 ##################################################################
 function fde_choose_protection {
@@ -864,7 +864,7 @@ function fde_choose_protection {
 	fde_trace "user selected protections: <$FDE_PROTECTION>"
 
 	if [ -z "$FDE_PROTECTION" ]; then
-	    break
+	    return 1
 	fi
 
 	if __fde_valid_protections $FDE_PROTECTION; then
@@ -872,13 +872,11 @@ function fde_choose_protection {
 	fi
     done
 
-    # return false if the user declined encryption
-    test "$FDE_PROTECTION" != ""
+    return 0
 }
 
 function fde_firstboot {
 
-    set -x
     if fde_choose_protection; then
 	if fde_setup_encrypted "$@"; then
 	    return 0
@@ -909,8 +907,6 @@ function fde_systemd_firstboot {
     # FIXME: rather than hard-coding the recovery password here,
     # have kiwi write it to /.root.something and read it from there
     fde_firstboot $(__get_root_dev) /.root.keyfile "1234" 2>/var/log/fde-firstboot.log
-
-    set +x
 }
 
 function fde_post {
