@@ -32,10 +32,14 @@
 #include <ctype.h>
 #include <tss2_fapi.h>
 
+#include "eventlog.h"
+#include "util.h"
+
 enum {
 	PREDICT_FROM_ZERO,
 	PREDICT_FROM_CURRENT,
 	PREDICT_FROM_SNAPSHOT,
+	PREDICT_FROM_EVENTLOG,
 };
 
 struct predictor {
@@ -44,6 +48,8 @@ struct predictor {
 
 	const char *	algo;
 	const EVP_MD *	md;
+
+	tpm_event_t *	event_log;
 
 	void		(*report_fn)(struct predictor *);
 
@@ -64,6 +70,7 @@ static struct option options[] = {
 	{ "from-zero",		no_argument,		0,	'Z' },
 	{ "from-current",	no_argument,		0,	'C' },
 	{ "from-snapshot",	no_argument,		0,	'S' },
+	{ "from-eventlog",	no_argument,		0,	'L' },
 	{ "algorithm",		required_argument,	0,	'A' },
 	{ "format",		required_argument,	0,	'F' },
 
@@ -107,19 +114,6 @@ usage(int exitval, const char *msg)
 		"After the PCR predictor has been extended with all updates specified, its value is printed to standard output.\n"
 	       );
 	exit(exitval);
-}
-
-static void
-fatal(const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	fprintf(stderr, "Fatal: ");
-	vfprintf(stderr, fmt, ap);
-	va_end(ap);
-
-	exit(2);
 }
 
 static bool
@@ -219,6 +213,24 @@ predictor_init_from_snapshot(struct predictor *pred)
 }
 
 static void
+predictor_load_eventlog(struct predictor *pred)
+{
+	tpm_event_log_reader_t *log;
+	tpm_event_t *ev, **tail;
+
+	log = event_log_open();
+
+	tail = &pred->event_log;
+	while ((ev = event_log_read_next(log)) != NULL) {
+		tpm_event_print(ev);
+		*tail = ev;
+		tail = &ev->next;
+	}
+
+	event_log_close(log);
+}
+
+static void
 fapi_error(const char *func, int rc)
 {
 	fatal("TPM2: function %s returns %d\n", func, rc);
@@ -296,6 +308,9 @@ predictor_new(unsigned int index, int from, const char *algo_name, const char *o
 	if (pred->from == PREDICT_FROM_SNAPSHOT) {
 		/* read value of indicated PCR from EFI snapshot variable */
 		predictor_init_from_snapshot(pred);
+	} else
+	if (pred->from == PREDICT_FROM_EVENTLOG) {
+		predictor_load_eventlog(pred);
 	}
 
 	debug("Created new predictor for %s:%u\n", pred->algo, pred->index);
@@ -427,6 +442,7 @@ predictor_report_binary(struct predictor *pred)
 		fatal("failed to write hash to stdout");
 }
 
+
 int
 main(int argc, char **argv)
 {
@@ -437,7 +453,7 @@ main(int argc, char **argv)
 	char *opt_output_format = NULL;
 	int c;
 
-	while ((c = getopt_long(argc, argv, "dhA:CF:SZ", options, NULL)) != EOF) {
+	while ((c = getopt_long(argc, argv, "dhA:CF:LSZ", options, NULL)) != EOF) {
 		switch (c) {
 		case 'A':
 			opt_algo = optarg;
@@ -453,6 +469,9 @@ main(int argc, char **argv)
 			break;
 		case 'S':
 			opt_from = PREDICT_FROM_SNAPSHOT;
+			break;
+		case 'L':
+			opt_from = PREDICT_FROM_EVENTLOG;
 			break;
 		case 'd':
 			opt_debug = true;

@@ -7,6 +7,9 @@ FAPI_LINK	= -ltss2-fapi -lcrypto
 FIDO_LINK	= -lfido2 -lcrypto
 TOOLS		= pcr-oracle fde-token
 
+ORACLE_SRCS	= oracle.c eventlog.c
+ORACLE_OBJS	= $(addprefix build/,$(patsubst %.c,%.o,$(ORACLE_SRCS)))
+
 all: $(TOOLS)
 
 install:: $(TOOLS)
@@ -21,8 +24,8 @@ clean:
 	rm -f $(TOOLS)
 	rm -rf build
 
-pcr-oracle: build/oracle.o
-	$(CC) -o $@ $< $(FAPI_LINK)
+pcr-oracle: $(ORACLE_OBJS)
+	$(CC) -o $@ $(ORACLE_OBJS) $(FAPI_LINK)
 
 fde-token: build/fde-token.o
 	$(CC) -o $@ $< $(FIDO_LINK)
