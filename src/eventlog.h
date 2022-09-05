@@ -21,10 +21,12 @@
 #ifndef EVENTLOG_H
 #define EVENTLOG_H
 
+#include <openssl/evp.h>
+
 typedef struct tpm_evdigest {
 	unsigned int		algo_id;
 	unsigned int		size;
-	unsigned char		data[128];
+	unsigned char		data[EVP_MAX_MD_SIZE];
 } tpm_evdigest_t;
 
 typedef struct tpm_event {
@@ -88,6 +90,81 @@ enum {
 	TPM2_EFI_SPDM_FIRMWARE_CONFIG        = 0x800000E2,
 };
 
+#define EFI_DEVICE_PATH_MAX		16
+
+typedef struct efi_device_path {
+	unsigned int		count;
+	struct efi_device_path_item {
+		unsigned char	type, subtype;
+		uint16_t	len;
+		void *		data;
+	} entries[EFI_DEVICE_PATH_MAX];
+} efi_device_path_t;
+
+enum {
+	TPM2_EFI_DEVPATH_TYPE_HARDWARE_DEVICE	= 0x01,
+	TPM2_EFI_DEVPATH_TYPE_ACPI_DEVICE	= 0x02,
+	TPM2_EFI_DEVPATH_TYPE_MESSAGING_DEVICE	= 0x03,
+	TPM2_EFI_DEVPATH_TYPE_MEDIA_DEVICE	= 0x04,
+	TPM2_EFI_DEVPATH_TYPE_BIOS_BOOT_DEVICE	= 0x05,
+	TPM2_EFI_DEVPATH_TYPE_END		= 0x7f,
+};
+
+enum {
+	TPM2_EFI_DEVPATH_HARDWARE_SUBTYPE_PCI		= 0x01,
+	TPM2_EFI_DEVPATH_HARDWARE_SUBTYPE_PCCARD	= 0x02,
+	TPM2_EFI_DEVPATH_HARDWARE_SUBTYPE_MEMORY_MAPPED	= 0x03,
+	TPM2_EFI_DEVPATH_HARDWARE_SUBTYPE_VENDOR	= 0x04,
+	TPM2_EFI_DEVPATH_HARDWARE_SUBTYPE_CONTROLLER	= 0x05,
+	TPM2_EFI_DEVPATH_HARDWARE_SUBTYPE_BMC		= 0x06,
+};
+
+enum {
+	TPM2_EFI_DEVPATH_ACPI_SUBTYPE_ACPI		= 0x01,
+	TPM2_EFI_DEVPATH_ACPI_SUBTYPE_ACPI_EXT		= 0x02,
+	TPM2_EFI_DEVPATH_ACPI_SUBTYPE_ACPI_ADR		= 0x03,
+};
+
+enum {
+	TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_HARDDRIVE	= 0x01,
+	TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_CDROM		= 0x02,
+	TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_VENDOR		= 0x03,
+	TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_FILE_PATH	= 0x04,
+	TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_MEDIA_PROTOCOL	= 0x05,
+	TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_PIWG_FIRMWARE	= 0x06,
+	TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_PIWG_FIRMWARE_VOLUME = 0x07,
+	TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_RELATIVE_OFFSET_RANGE = 0x08,
+	TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_RAMDISK		= 0x09,
+};
+
+enum {
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_ATAPI	= 0x01,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_SCSI		= 0x02,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_FIBRECHANNEL	= 0x03,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_FIREWIRE	= 0x04,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_USB		= 0x05,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_I20		= 0x06,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_INFINIBAND	= 0x09,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_VENDOR	= 0x0A,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_MACADDR	= 0x0B,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_IPV4		= 0x0C,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_IPV6		= 0x0D,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_UART		= 0x0E,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_USBCLASS	= 0x0F,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_USBWWID	= 0x10,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_DEVICE_LUN	= 0x11,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_SATA		= 0x12,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_ISCSI	= 0x13,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_VLAN		= 0x14,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_FIRECHANNEL_EX = 0x15,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_SAS_EX	= 0x16,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_NVME		= 0x17,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_URI		= 0x18,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_BT		= 0x1B,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_WIFI		= 0x1C,
+	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_EMMC		= 0x1D,
+};
+
 /*
  * Parsed event types
  */
@@ -103,6 +180,14 @@ typedef struct tpm_parsed_event {
 			unsigned int	len;
 			void *		data;
 		} efi_variable_event;
+
+		struct {
+			uint64_t	image_location;
+			size_t		image_length;
+			size_t		image_lt_address;
+
+			efi_device_path_t device_path;
+		} efi_bsa_event;
 	};
 } tpm_parsed_event_t;
 
@@ -113,6 +198,9 @@ extern void			event_log_close(tpm_event_log_reader_t *log);
 extern tpm_event_t *		event_log_read_next(tpm_event_log_reader_t *log);
 extern void			tpm_event_print(tpm_event_t *ev);
 extern tpm_parsed_event_t *	tpm_event_parse(tpm_event_t *ev);
+extern const tpm_evdigest_t *	tpm_event_get_digest(const tpm_event_t *ev, const char *algo_name);
+extern bool			tpm_efi_bsa_event_extract_location(tpm_parsed_event_t *parsed,
+					char **dev_ret, char **path_ret);
 extern void			tpm_parsed_event_print(tpm_parsed_event_t *parsed);
 
 #endif /* EVENTLOG_H */

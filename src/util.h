@@ -38,4 +38,21 @@ fatal(const char *fmt, ...)
 	exit(2);
 }
 
+static inline void
+drop_string(char **var)
+{
+	if (*var) {
+		free(*var);
+		*var = NULL;
+	}
+}
+
+static inline void
+assign_string(char **var, const char *string)
+{
+	drop_string(var);
+	if (string)
+		*var = strdup(string);
+}
+
 #endif /* UTIL_H */

@@ -20,6 +20,7 @@
 
 #include <openssl/evp.h>
 #include <sys/stat.h>
+#include <sys/mount.h>
 #include <getopt.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -222,7 +223,6 @@ predictor_load_eventlog(struct predictor *pred)
 
 	tail = &pred->event_log;
 	while ((ev = event_log_read_next(log)) != NULL) {
-		tpm_event_print(ev);
 		*tail = ev;
 		tail = &ev->next;
 	}
@@ -258,7 +258,7 @@ predictor_init_from_current(struct predictor *pred)
 	if (rc != 0)
 		fapi_error("Fapi_Initialize", rc);
 
-
+	/* FIXME: how does this function select a PCR bank? */
 	rc = Fapi_PcrRead(context, pred->index, digests, digest_sizes, &pcrLog);
 	if (rc)
 		fapi_error("Fapi_PcrRead", rc);
@@ -302,7 +302,7 @@ predictor_new(unsigned int index, int from, const char *algo_name, const char *o
 		fatal("Unsupported output format \"%s\"\n", output_format);
 
 	if (pred->from == PREDICT_FROM_CURRENT) {
-		/* FIXME: read current value of indicated PCR and store it to md_value */
+		/* read current value of indicated PCR and store it to md_value */
 		predictor_init_from_current(pred);
 	} else
 	if (pred->from == PREDICT_FROM_SNAPSHOT) {
@@ -318,18 +318,18 @@ predictor_new(unsigned int index, int from, const char *algo_name, const char *o
 }
 
 static void
-predictor_extend_hash(struct predictor *pred, const unsigned char *hash, unsigned int size)
+predictor_extend_hash(struct predictor *pred, const tpm_evdigest_t *d)
 {
 	EVP_MD_CTX *mdctx;
 	unsigned int md_len;
 
-	assert(size == pred->md_size);
+	assert(d->size == pred->md_size);
 
 	mdctx = EVP_MD_CTX_new();
 	EVP_DigestInit_ex(mdctx, pred->md, NULL);
 
 	EVP_DigestUpdate(mdctx, pred->md_value, pred->md_size);
-	EVP_DigestUpdate(mdctx, hash, size);
+	EVP_DigestUpdate(mdctx, d->data, d->size);
 
 	EVP_DigestFinal_ex(mdctx, pred->md_value, &md_len);
 	assert(pred->md_size == md_len);
@@ -337,40 +337,32 @@ predictor_extend_hash(struct predictor *pred, const unsigned char *hash, unsigne
 	EVP_MD_CTX_free(mdctx);
 }
 
-static void
-predictor_extend(struct predictor *pred, const char *data, unsigned int size)
+static const tpm_evdigest_t *
+predictor_compute_digest(struct predictor *pred, const char *data, unsigned int size)
 {
+	static tpm_evdigest_t md;
 	EVP_MD_CTX *mdctx;
-	unsigned char md_value[EVP_MAX_MD_SIZE];
-	unsigned int md_len;
-
-	debug("Extending PCR %u with %u bytes of data\n", pred->index, size);
 
 	mdctx = EVP_MD_CTX_new();
 	EVP_DigestInit_ex(mdctx, pred->md, NULL);
 
 	EVP_DigestUpdate(mdctx, data, size);
-	EVP_DigestFinal_ex(mdctx, md_value, &md_len);
+	EVP_DigestFinal_ex(mdctx, md.data, &md.size);
 	EVP_MD_CTX_free(mdctx);
 
-	predictor_extend_hash(pred, md_value, md_len);
+	/* FIXME: for completeness' sake, we should set the digest's algorithm ID */
+	md.algo_id = -1;
+
+	return &md;
 }
 
-static void
-predictor_update_string(struct predictor *pred, const char *value)
+static const tpm_evdigest_t *
+predictor_compute_file_digest(struct predictor *pred, const char *filename, int fd)
 {
-	predictor_extend(pred, value, strlen(value));
-}
-
-static void
-predictor_update_file(struct predictor *pred, const char *filename)
-{
+	const tpm_evdigest_t *md;
 	struct stat stb;
 	char *buffer;
-	int fd, n;
-
-	if ((fd = open(filename, O_RDONLY)) < 0)
-		fatal("Unable to open file %s: %m\n", filename);
+	int n;
 
 	if (fstat(fd, &stb) < 0)
 		fatal("Cannot stat %s: %m\n", filename);
@@ -389,8 +381,115 @@ predictor_update_file(struct predictor *pred, const char *filename)
 	close(fd);
 
 	debug("Read %lu bytes from %s\n", (unsigned long) stb.st_size, filename);
-	predictor_extend(pred, buffer, stb.st_size);
+	md = predictor_compute_digest(pred, buffer, stb.st_size);
 	free(buffer);
+
+	return md;
+}
+
+static const tpm_evdigest_t *
+predictor_compute_efi_file_digest(struct predictor *pred, const char *device_path, const char *file_path)
+{
+	const tpm_evdigest_t *md;
+	char display_path[PATH_MAX];
+	char fullpath[PATH_MAX];
+	char template[] = "/tmp/efimnt.XXXXXX";
+	char *dirname;
+	int fd = -1;
+
+	snprintf(display_path, sizeof(display_path), "(%s)%s", device_path, file_path);
+	printf("Updating PCR %d with %s\n", pred->index, display_path);
+
+	if (!(dirname = mkdtemp(template)))
+		fatal("Cannot create temporary mount point for EFI partition");
+
+	if (mount(device_path, dirname, "vfat", 0, NULL) < 0) {
+		(void) rmdir(dirname);
+		fatal("Unable to mount %s on %s\n", device_path, dirname);
+	}
+
+	snprintf(fullpath, sizeof(fullpath), "%s/%s", dirname, file_path);
+	if ((fd = open(fullpath, O_RDONLY)) < 0) {
+		umount(dirname);
+		rmdir(dirname);
+
+		fatal("Unable to open %s on %s: %m\n", file_path, device_path);
+	}
+
+	/* This is not correct; the proper thing to do here is to use libpde from
+	 * pesign to compute the hash of the PE COFF binary in AuthentiCode style. */
+	md = predictor_compute_file_digest(pred, display_path, fd);
+
+	if (umount(dirname) < 0)
+		fatal("unable to unmount temporary directory %s: %m\n", dirname);
+
+	if (rmdir(dirname) < 0)
+		fatal("unable to remove temporary directory %s: %m\n", dirname);
+
+	return md;
+}
+
+static void
+predictor_update_string(struct predictor *pred, const char *value)
+{
+	const tpm_evdigest_t *md;
+
+	debug("Extending PCR %u with string \"%s\"\n", pred->index, value);
+	md = predictor_compute_digest(pred, value, strlen(value));
+	predictor_extend_hash(pred, md);
+}
+
+static void
+predictor_update_file(struct predictor *pred, const char *filename)
+{
+	const tpm_evdigest_t *md;
+	int fd;
+
+	if ((fd = open(filename, O_RDONLY)) < 0)
+		fatal("Unable to open file %s: %m\n", filename);
+
+	md = predictor_compute_file_digest(pred, filename, fd);
+	predictor_extend_hash(pred, md);
+}
+
+static void
+predictor_update_eventlog(struct predictor *pred)
+{
+	tpm_event_t *ev;
+	char *device_path = NULL, *file_path = NULL;
+
+	for (ev = pred->event_log; ev; ev = ev->next) {
+		if (ev->pcr_index == pred->index) {
+			const tpm_evdigest_t *old_digest, *new_digest;
+			tpm_parsed_event_t *parsed;
+
+			tpm_event_print(ev);
+
+			if (!(old_digest = tpm_event_get_digest(ev, pred->algo)))
+				fatal("Event log lacks a hash for digest algorithm %s\n", pred->algo);
+
+			if (ev->event_type == TPM2_EFI_BOOT_SERVICES_APPLICATION) {
+				if (!(parsed = tpm_event_parse(ev)))
+					fatal("Unable to parse EFI_BOOT_SERVICES_APPLICATION event from TPM log");
+
+				if (!tpm_efi_bsa_event_extract_location(parsed, &device_path, &file_path))
+					fatal("Unable to locate updated boot service application");
+
+				new_digest = predictor_compute_efi_file_digest(pred, device_path, file_path);
+
+				if (new_digest->size == old_digest->size
+				 && !memcmp(new_digest->data, old_digest->data, old_digest->size))
+					printf("  Digest for (%s)%s did not change\n", device_path, file_path);
+			} else {
+				new_digest = old_digest;
+			}
+
+			predictor_extend_hash(pred, new_digest);
+		}
+	}
+
+	drop_string(&device_path);
+	drop_string(&file_path);
 }
 
 static void
@@ -410,6 +509,9 @@ predictor_update(struct predictor *pred, const char *type, const char *arg)
 static void
 predictor_report(struct predictor *pred)
 {
+	if (pred->from == PREDICT_FROM_EVENTLOG)
+		predictor_update_eventlog(pred);
+
 	pred->report_fn(pred);
 }
 
