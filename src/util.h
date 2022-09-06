@@ -25,6 +25,14 @@
 #include <stdio.h>
 #include <stdbool.h>
 
+#include <openssl/evp.h>
+
+typedef struct tpm_evdigest {
+	unsigned int		algo_id;
+	unsigned int		size;
+	unsigned char		data[EVP_MAX_MD_SIZE];
+} tpm_evdigest_t;
+
 
 #define debug(msg ...) \
 	do {					\
@@ -64,9 +72,11 @@ assign_string(char **var, const char *string)
 		*var = strdup(string);
 }
 
-extern bool	parse_pcr_index(const char *word, unsigned int *ret);
-extern bool	parse_hexdigit(const char **pos, unsigned char *ret);
-extern bool	parse_octet(const char **pos, unsigned char *ret);
+extern bool		parse_pcr_index(const char *word, unsigned int *ret);
+extern bool		parse_hexdigit(const char **pos, unsigned char *ret);
+extern bool		parse_octet(const char **pos, unsigned char *ret);
+extern unsigned int	parse_octet_string(const char *string, unsigned char *buffer, size_t bufsz);
+extern const tpm_evdigest_t *parse_digest(const char *string, const char *algo);
 
 
 #endif /* UTIL_H */

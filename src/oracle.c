@@ -123,7 +123,7 @@ predictor_init_from_snapshot(struct predictor *pred)
 	while (fgets(linebuf, sizeof(linebuf), fp) != NULL) {
 		unsigned int index;
 		const char *algo, *value;
-		unsigned int i;
+		unsigned int len;
 		char *w;
 
 		debug("=> %s", linebuf);
@@ -141,20 +141,18 @@ predictor_init_from_snapshot(struct predictor *pred)
 
 		if (!(value = strtok(NULL, " \t\n")))
 			continue;
-		for (i = 0; parse_octet(&value, &pred->md_value[i]); ++i)
-			;
 
-		debug("parsed %u octets\n", i);
-		if (*value)
+		len = parse_octet_string(value, pred->md_value, sizeof(pred->md_value));
+		if (len == 0)
 			continue;
 
-		if (i == pred->md_size) {
+		if (len == pred->md_size) {
 			found = true;
 			break;
 		}
 
 		debug("Found entry for %s:%u, but value has wrong size %u (expected %u)\n",
-				pred->algo, pred->index, i, pred->md_size);
+				pred->algo, pred->index, len, pred->md_size);
 	}
 
 	fclose(fp);

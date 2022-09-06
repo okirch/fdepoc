@@ -21,14 +21,6 @@
 #ifndef EVENTLOG_H
 #define EVENTLOG_H
 
-#include <openssl/evp.h>
-
-typedef struct tpm_evdigest {
-	unsigned int		algo_id;
-	unsigned int		size;
-	unsigned char		data[EVP_MAX_MD_SIZE];
-} tpm_evdigest_t;
-
 typedef struct tpm_event {
 	struct tpm_event *	next;
 

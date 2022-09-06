@@ -64,3 +64,33 @@ parse_octet(const char **pos, unsigned char *ret)
 {
 	return parse_hexdigit(pos, ret) && parse_hexdigit(pos, ret);
 }
+
+unsigned int
+parse_octet_string(const char *string, unsigned char *buffer, size_t bufsz)
+{
+	const char *orig_string = string;
+	unsigned int i;
+
+	for (i = 0; *string; ++i) {
+		if (i >= bufsz) {
+			debug("%s: octet string too long for buffer: \"%s\"\n", __func__, orig_string);
+			return 0;
+		}
+		if (!parse_octet(&string, &buffer[i])) {
+			debug("%s: bad octet near offset %d \"%s\"\n", __func__, 2 * i, orig_string);
+			return 0;
+		}
+	}
+
+	debug("parsed %u octets\n", i);
+	return i;
+}
+
+const tpm_evdigest_t *
+parse_digest(const char *string, const char *algo)
+{
+	static tpm_evdigest_t md;
+
+	/* TBD */
+	return &md;
+}
