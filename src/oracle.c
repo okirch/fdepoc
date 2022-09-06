@@ -25,16 +25,14 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
-#include <stdbool.h>
 #include <stdarg.h>
 #include <assert.h>
 #include <ctype.h>
 #include <tss2_fapi.h>
 
-#include "eventlog.h"
 #include "util.h"
+#include "eventlog.h"
 
 enum {
 	PREDICT_FROM_ZERO,
@@ -60,13 +58,6 @@ struct predictor {
 
 #define GRUB_PCR_SNAPSHOT_UUID	"7ce323f2-b841-4d30-a0e9-5474a76c9a3f"
 
-
-#define debug(msg ...) \
-	do {					\
-		if (opt_debug)			\
-			printf(msg);		\
-	} while (0)
-
 static struct option options[] = {
 	{ "from-zero",		no_argument,		0,	'Z' },
 	{ "from-current",	no_argument,		0,	'C' },
@@ -78,7 +69,7 @@ static struct option options[] = {
 	{ NULL }
 };
 
-static bool opt_debug	= false;
+bool opt_debug	= false;
 
 static void	predictor_report_plain(struct predictor *pred);
 static void	predictor_report_tpm2_tools(struct predictor *pred);
@@ -115,47 +106,6 @@ usage(int exitval, const char *msg)
 		"After the PCR predictor has been extended with all updates specified, its value is printed to standard output.\n"
 	       );
 	exit(exitval);
-}
-
-static bool
-parse_pcr_index(const char *word, unsigned int *ret)
-{
-	unsigned int value;
-	const char *end;
-
-	value = strtoul(word, (char **) &end, 10);
-	if (*end) {
-		fprintf(stderr, "Unable to parse PCR index \"%s\"\n", word);
-		return false;
-	}
-
-	*ret = value;
-	return true;
-}
-
-static bool
-parse_hexdigit(const char **pos, unsigned char *ret)
-{
-	char cc = *(*pos)++;
-	unsigned int octet;
-
-	if (isdigit(cc))
-		octet = cc - '0';
-	else if ('a' <= cc && cc <= 'f')
-		octet = cc - 'a' + 10;
-	else if ('A' <= cc && cc <= 'F')
-		octet = cc - 'A' + 10;
-	else
-		return false;
-
-	*ret = (*ret << 4) | octet;
-	return true;
-}
-
-static bool
-parse_octet(const char **pos, unsigned char *ret)
-{
-	return parse_hexdigit(pos, ret) && parse_hexdigit(pos, ret);
 }
 
 static void
@@ -543,7 +493,6 @@ predictor_report_binary(struct predictor *pred)
 	if (fwrite(pred->md_value, pred->md_size, 1, stdout) != 1)
 		fatal("failed to write hash to stdout");
 }
-
 
 int
 main(int argc, char **argv)

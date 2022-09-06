@@ -18,55 +18,49 @@
  * Written by Olaf Kirch <okir@suse.com>
  */
 
-#ifndef UTIL_H
-#define UTIL_H
+#include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
 
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdbool.h>
+#include "util.h"
 
-
-#define debug(msg ...) \
-	do {					\
-		if (opt_debug)			\
-			printf(msg);		\
-	} while (0)
-
-extern bool	opt_debug;
-
-static inline void
-fatal(const char *fmt, ...)
+bool
+parse_pcr_index(const char *word, unsigned int *ret)
 {
-	va_list ap;
+	unsigned int value;
+	const char *end;
 
-	va_start(ap, fmt);
-	fprintf(stderr, "Fatal: ");
-	vfprintf(stderr, fmt, ap);
-	va_end(ap);
-
-	exit(2);
-}
-
-static inline void
-drop_string(char **var)
-{
-	if (*var) {
-		free(*var);
-		*var = NULL;
+	value = strtoul(word, (char **) &end, 10);
+	if (*end) {
+		fprintf(stderr, "Unable to parse PCR index \"%s\"\n", word);
+		return false;
 	}
+
+	*ret = value;
+	return true;
 }
 
-static inline void
-assign_string(char **var, const char *string)
+bool
+parse_hexdigit(const char **pos, unsigned char *ret)
 {
-	drop_string(var);
-	if (string)
-		*var = strdup(string);
+	char cc = *(*pos)++;
+	unsigned int octet;
+
+	if (isdigit(cc))
+		octet = cc - '0';
+	else if ('a' <= cc && cc <= 'f')
+		octet = cc - 'a' + 10;
+	else if ('A' <= cc && cc <= 'F')
+		octet = cc - 'A' + 10;
+	else
+		return false;
+
+	*ret = (*ret << 4) | octet;
+	return true;
 }
 
-extern bool	parse_pcr_index(const char *word, unsigned int *ret);
-extern bool	parse_hexdigit(const char **pos, unsigned char *ret);
-extern bool	parse_octet(const char **pos, unsigned char *ret);
-
-
-#endif /* UTIL_H */
+bool
+parse_octet(const char **pos, unsigned char *ret)
+{
+	return parse_hexdigit(pos, ret) && parse_hexdigit(pos, ret);
+}
