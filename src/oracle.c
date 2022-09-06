@@ -189,8 +189,8 @@ static void
 predictor_init_state(struct predictor *pred, const unsigned char *md_value, unsigned int md_size)
 {
 	if (pred->md_size != md_size)
-		fatal("Could not initialize predictor: initial hash value has size %u (expected %u)\n",
-				pred->algo, pred->index, md_size, pred->md_size);
+		fatal("Could not initialize predictor for PCR %s:%u: initial hash value has size %u (expected %u)\n",
+				pred->algo, pred->index, (int) md_size, pred->md_size);
 	memcpy(pred->md_value, md_value, md_size);
 }
 
@@ -198,27 +198,31 @@ static void
 predictor_init_from_current(struct predictor *pred)
 {
 	FAPI_CONTEXT *context = NULL;
-	uint8_t *digests[1] = { NULL };
-	size_t digest_sizes[1] = { 0 };
-	char *pcrLog = NULL;
+	uint8_t *digests[8] = { NULL };
+	size_t digest_sizes[8] = { 0 };
 	int rc;
+
+	if (strcmp(pred->algo, "sha256"))
+		fatal("Cannot initialize from current TPM values for digest algorithm %s - not implemented\n",
+				pred->algo);
 
 	rc = Fapi_Initialize(&context, NULL);
 	if (rc != 0)
 		fapi_error("Fapi_Initialize", rc);
 
-	/* FIXME: how does this function select a PCR bank? */
-	rc = Fapi_PcrRead(context, pred->index, digests, digest_sizes, &pcrLog);
+	/* FIXME: how does this function select a PCR bank?
+	 * The answer is: it doesn't. The proper way to obtain current
+	 * values for eg sha1 would be to use ESYS_PCR_Read() instead.
+	 */
+	rc = Fapi_PcrRead(context, pred->index, digests, digest_sizes, NULL);
 	if (rc)
 		fapi_error("Fapi_PcrRead", rc);
 
 	predictor_init_state(pred, digests[0], digest_sizes[0]);
 
 	Fapi_Free(digests[0]);
-	if (pcrLog)
-		Fapi_Free(pcrLog);
 
-	debug("Initialized predictor from current PCR\n");
+	debug("Initialized predictor from current PCR%u value\n", pred->index);
 }
 
 static struct predictor *
