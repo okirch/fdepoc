@@ -23,6 +23,7 @@
 #include <ctype.h>
 
 #include "util.h"
+#include "digest.h"
 
 bool
 parse_pcr_index(const char *word, unsigned int *ret)
@@ -82,15 +83,68 @@ parse_octet_string(const char *string, unsigned char *buffer, size_t bufsz)
 		}
 	}
 
-	debug("parsed %u octets\n", i);
 	return i;
 }
 
 const tpm_evdigest_t *
 parse_digest(const char *string, const char *algo)
 {
+	static const tpm_algo_info_t *algo_info;
 	static tpm_evdigest_t md;
 
-	/* TBD */
+	if (!(algo_info = digest_by_name(algo)))
+		fatal("%s: unknown digest name \"%s\"\n", __func__, algo);
+
+	memset(&md, 0, sizeof(md));
+	md.algo_id = algo_info->tcg_id;
+
+	md.size = parse_octet_string(string, md.data, sizeof(md.data));
+	if (md.size != algo_info->digest_size) {
+		debug("Cannot parse %s digest \"%s\" - wrong size %u; expected %u\n",
+				algo, string, md.size, algo_info->digest_size);
+		return NULL;
+	}
+
 	return &md;
+}
+
+void
+hexdump(const void *data, size_t size, void (*print_fn)(const char *, ...), unsigned int indent)
+{
+	const unsigned char *bytes = data;
+	unsigned int i, j, bytes_per_line;
+	char octets[32 * 3 + 1];
+	char ascii[32 + 1];
+
+	for (i = 0; i < size; i += 32) {
+		char *pos;
+
+		if ((bytes_per_line = size - i) > 32)
+			bytes_per_line = 32;
+
+		pos = octets;
+		for (j = 0; j < 32; ++j) {
+			if (j < bytes_per_line)
+				sprintf(pos, " %02x", bytes[i + j]);
+			else
+				sprintf(pos, "   ");
+			pos += 3;
+		}
+
+		pos = ascii;
+		for (j = 0; j < bytes_per_line; ++j) {
+			unsigned char cc = bytes[i + j];
+
+			if (isalnum(cc) || ispunct(cc))
+				*pos++ = cc;
+			else
+				*pos++ = '.';
+
+			*pos = '\0';
+		}
+
+		print_fn("%*.*s%04x %-96s %-s\n",
+				(int) indent, (int) indent, "",
+				i, octets, ascii);
+	}
 }

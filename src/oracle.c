@@ -304,13 +304,15 @@ predictor_compute_digest(struct predictor *pred, const char *data, unsigned int 
 	return &md;
 }
 
+#define PREDICTOR_DIGEST_SHORT_READ_OKAY	0x0001
+
 static const tpm_evdigest_t *
-predictor_compute_file_digest(struct predictor *pred, const char *filename, int fd)
+predictor_compute_file_digest(struct predictor *pred, const char *filename, int fd, int flags)
 {
 	const tpm_evdigest_t *md;
 	struct stat stb;
 	char *buffer;
-	int n;
+	int count;
 
 	if (fstat(fd, &stb) < 0)
 		fatal("Cannot stat %s: %m\n", filename);
@@ -320,17 +322,58 @@ predictor_compute_file_digest(struct predictor *pred, const char *filename, int 
 				(unsigned long) stb.st_size,
 				filename);
 
-	n = read(fd, buffer, stb.st_size);
-	if (n < 0)
+	count = read(fd, buffer, stb.st_size);
+	if (count < 0)
 		fatal("Error while reading from %s: %m\n", filename);
-	if (n != stb.st_size)
+
+	if (flags & PREDICTOR_DIGEST_SHORT_READ_OKAY) {
+		/* NOP */
+	} else if (count != stb.st_size) {
 		fatal("Short read from %s\n", filename);
+	}
 
 	close(fd);
 
-	debug("Read %lu bytes from %s\n", (unsigned long) stb.st_size, filename);
-	md = predictor_compute_digest(pred, buffer, stb.st_size);
+	debug("Read %u bytes from %s\n", count, filename);
+	md = predictor_compute_digest(pred, buffer, count);
 	free(buffer);
+
+	return md;
+}
+
+static const tpm_evdigest_t *
+predictor_compute_pecoff_digest(struct predictor *pred, const char *filename)
+{
+	char cmdbuf[8192], linebuf[1024];
+	const tpm_evdigest_t *md = NULL;
+	FILE *fp;
+
+	snprintf(cmdbuf, sizeof(cmdbuf),
+			"pesign --hash --in %s --digest_type %s",
+			filename, pred->algo);
+
+	debug("Executing command: %s\n", cmdbuf);
+	if ((fp = popen(cmdbuf, "r")) == NULL)
+		fatal("Unable to run command: %s\n", cmdbuf);
+
+	while (fgets(linebuf, sizeof(linebuf), fp) != NULL) {
+		char *w;
+
+		/* line must start with "hash:" */
+		if (!(w = strtok(linebuf, " \t\n:")) || strcmp(w, "hash"))
+			continue;
+
+		if (!(w = strtok(NULL, " \t\n")))
+			fatal("cannot parse pesign output\n");
+
+		if (!(md = parse_digest(w, pred->algo)))
+			fatal("unable to parse %s digest printed by pesign: \"%s\"\n", pred->algo, w);
+
+		break;
+	}
+
+	if (fclose(fp) != 0)
+		fatal("pesign command failed: %m\n");
 
 	return md;
 }
@@ -343,10 +386,9 @@ predictor_compute_efi_file_digest(struct predictor *pred, const char *device_pat
 	char fullpath[PATH_MAX];
 	char template[] = "/tmp/efimnt.XXXXXX";
 	char *dirname;
-	int fd = -1;
 
 	snprintf(display_path, sizeof(display_path), "(%s)%s", device_path, file_path);
-	printf("Updating PCR %d with %s\n", pred->index, display_path);
+	debug("Updating PCR %d with %s\n", pred->index, display_path);
 
 	if (!(dirname = mkdtemp(template)))
 		fatal("Cannot create temporary mount point for EFI partition");
@@ -356,17 +398,14 @@ predictor_compute_efi_file_digest(struct predictor *pred, const char *device_pat
 		fatal("Unable to mount %s on %s\n", device_path, dirname);
 	}
 
-	snprintf(fullpath, sizeof(fullpath), "%s/%s", dirname, file_path);
-	if ((fd = open(fullpath, O_RDONLY)) < 0) {
-		umount(dirname);
-		rmdir(dirname);
-
-		fatal("Unable to open %s on %s: %m\n", file_path, device_path);
-	}
-
 	/* This is not correct; the proper thing to do here is to use libpde from
-	 * pesign to compute the hash of the PE COFF binary in AuthentiCode style. */
-	md = predictor_compute_file_digest(pred, display_path, fd);
+	 * pesign to compute the hash of the PE COFF binary in AuthentiCode style.
+	 * Alternatively, we could implement a facility that lets the user pass
+	 * the digest. This could be used to give us the output of
+	 *  pesign --hash --in $path_of_efi_binary --digest_type sha256
+	 */
+	snprintf(fullpath, sizeof(fullpath), "%s/%s", dirname, file_path);
+	md = predictor_compute_pecoff_digest(pred, fullpath);
 
 	if (umount(dirname) < 0)
 		fatal("unable to unmount temporary directory %s: %m\n", dirname);
@@ -375,6 +414,21 @@ predictor_compute_efi_file_digest(struct predictor *pred, const char *device_pat
 		fatal("unable to remove temporary directory %s: %m\n", dirname);
 
 	return md;
+}
+
+static const tpm_evdigest_t *
+predictor_compute_efi_variable_digest(struct predictor *pred, const char *var_name)
+{
+	char filename[PATH_MAX];
+	int fd;
+
+	snprintf(filename, sizeof(filename), "/sys/firmware/efi/vars/%s/data", var_name);
+	debug("Reading %s\n", filename);
+
+	if ((fd = open(filename, O_RDONLY)) < 0)
+		fatal("Unable to open file %s: %m\n", filename);
+
+	return predictor_compute_file_digest(pred, filename, fd, PREDICTOR_DIGEST_SHORT_READ_OKAY);
 }
 
 static void
@@ -396,48 +450,112 @@ predictor_update_file(struct predictor *pred, const char *filename)
 	if ((fd = open(filename, O_RDONLY)) < 0)
 		fatal("Unable to open file %s: %m\n", filename);
 
-	md = predictor_compute_file_digest(pred, filename, fd);
+	md = predictor_compute_file_digest(pred, filename, fd, 0);
 	predictor_extend_hash(pred, md);
+}
+
+static const tpm_evdigest_t *
+predictor_compute_boot_services_application(struct predictor *pred, tpm_event_t *ev,
+		char **efi_partition_p, char **efi_application_p)
+{
+	tpm_parsed_event_t *parsed;
+
+	if (!(parsed = tpm_event_parse(ev)))
+		fatal("Unable to parse EFI_BOOT_SERVICES_APPLICATION event from TPM log");
+
+	if (!tpm_efi_bsa_event_extract_location(parsed, efi_partition_p, efi_application_p))
+		fatal("Unable to locate updated boot service application");
+
+	return predictor_compute_efi_file_digest(pred, *efi_partition_p, *efi_application_p);
+}
+
+static const tpm_evdigest_t *
+predictor_compute_efi_variable(struct predictor *pred, tpm_event_t *ev, const char **desc_p)
+{
+	tpm_parsed_event_t *parsed;
+	const char *var_name;
+	const tpm_evdigest_t *md;
+
+	if (!(parsed = tpm_event_parse(ev)))
+		fatal("Unable to parse EFI_VARIABLE_BOOT event from TPM log");
+
+	if (!(var_name = tpm_efi_variable_event_extract_full_varname(parsed)))
+		fatal("Unable to extract EFI variable name from EFI_VARIABLE_BOOT event\n");
+
+	/* Not quite: we need to compute the digest over the data blob in the
+	 * exact format that's included in the raw event data. */
+	md = predictor_compute_efi_variable_digest(pred, var_name);
+
+	*desc_p = var_name;
+	return md;
 }
 
 static void
 predictor_update_eventlog(struct predictor *pred)
 {
+	char *efi_partition = NULL, *efi_application = NULL;
 	tpm_event_t *ev;
-	char *device_path = NULL, *file_path = NULL;
 
 	for (ev = pred->event_log; ev; ev = ev->next) {
 		if (ev->pcr_index == pred->index) {
 			const tpm_evdigest_t *old_digest, *new_digest;
-			tpm_parsed_event_t *parsed;
+			const char *description = NULL;
 
-			tpm_event_print(ev);
+			debug("\n");
+			__tpm_event_print(ev, debug);
 
 			if (!(old_digest = tpm_event_get_digest(ev, pred->algo)))
 				fatal("Event log lacks a hash for digest algorithm %s\n", pred->algo);
 
-			if (ev->event_type == TPM2_EFI_BOOT_SERVICES_APPLICATION) {
-				if (!(parsed = tpm_event_parse(ev)))
-					fatal("Unable to parse EFI_BOOT_SERVICES_APPLICATION event from TPM log");
+			switch (ev->event_type) {
+			case TPM2_EFI_BOOT_SERVICES_APPLICATION:
+				new_digest = predictor_compute_boot_services_application(pred, ev, &efi_partition, &efi_application);
+				description = efi_application;
+				break;
 
-				if (!tpm_efi_bsa_event_extract_location(parsed, &device_path, &file_path))
-					fatal("Unable to locate updated boot service application");
+			case TPM2_EFI_VARIABLE_BOOT:
+				new_digest = predictor_compute_efi_variable(pred, ev, &description);
+				break;
 
-				new_digest = predictor_compute_efi_file_digest(pred, device_path, file_path);
+			/* Probably needs to be done:
+			 * EFI_GPT_EVENT: used in updates of PCR5, seems to be a hash of several GPT headers.
+			 *	We should probably rebuild in case someone changed the partitioning.
+			 * EFI_VARIABLE_DRIVER_CONFIG: all the secure boot variables get hashed into this,
+			 *	including PK, dbx, etc.
+			 */
 
-				if (new_digest->size == old_digest->size
-				 && !memcmp(new_digest->data, old_digest->data, old_digest->size))
-					printf("  Digest for (%s)%s did not change\n", device_path, file_path);
-			} else {
+			case TPM2_EVENT_S_CRTM_CONTENTS:
+			case TPM2_EVENT_S_CRTM_VERSION:
+			case TPM2_EVENT_SEPARATOR:
+			case TPM2_EVENT_POST_CODE:
+			case TPM2_EFI_HANDOFF_TABLES:
+			case TPM2_EFI_GPT_EVENT:
 				new_digest = old_digest;
+				break;
+
+			default:
+				debug("Encountered unexpected event type %s\n",
+						tpm_event_type_to_string(ev->event_type));
+				new_digest = old_digest;
+			}
+
+			if (opt_debug && new_digest != old_digest) {
+				if (new_digest->size == old_digest->size
+				 && !memcmp(new_digest->data, old_digest->data, old_digest->size)) {
+					debug("Digest for %s did not change\n", description);
+				} else {
+					debug("Digest for %s changed\n", description);
+					debug("  Old digest: %s\n", digest_print(old_digest));
+					debug("  New digest: %s\n", digest_print(new_digest));
+				}
 			}
 
 			predictor_extend_hash(pred, new_digest);
 		}
 	}
 
-	drop_string(&device_path);
-	drop_string(&file_path);
+	drop_string(&efi_partition);
+	drop_string(&efi_application);
 }
 
 static void

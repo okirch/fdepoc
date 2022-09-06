@@ -25,22 +25,22 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#include <openssl/evp.h>
-
-typedef struct tpm_evdigest {
-	unsigned int		algo_id;
-	unsigned int		size;
-	unsigned char		data[EVP_MAX_MD_SIZE];
-} tpm_evdigest_t;
-
-
-#define debug(msg ...) \
-	do {					\
-		if (opt_debug)			\
-			printf(msg);		\
-	} while (0)
+#include "digest.h"
 
 extern bool	opt_debug;
+
+static inline void
+debug(const char *fmt, ...)
+{
+	va_list ap;
+
+	if (opt_debug) {
+		va_start(ap, fmt);
+		fprintf(stderr, "::: ");
+		vfprintf(stderr, fmt, ap);
+		va_end(ap);
+	}
+}
 
 static inline void
 fatal(const char *fmt, ...)
@@ -78,5 +78,6 @@ extern bool		parse_octet(const char **pos, unsigned char *ret);
 extern unsigned int	parse_octet_string(const char *string, unsigned char *buffer, size_t bufsz);
 extern const tpm_evdigest_t *parse_digest(const char *string, const char *algo);
 
+extern void		hexdump(const void *data, size_t size, void (*)(const char *, ...), unsigned int indent);
 
 #endif /* UTIL_H */

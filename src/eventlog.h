@@ -21,6 +21,9 @@
 #ifndef EVENTLOG_H
 #define EVENTLOG_H
 
+#include "digest.h"
+#include "util.h"
+
 typedef struct tpm_event {
 	struct tpm_event *	next;
 
@@ -37,10 +40,7 @@ typedef struct tpm_event {
 	void *			event_data;
 } tpm_event_t;
 
-typedef struct tpm_algo_info {
-	const char *		openssl_name;
-	unsigned int		digest_size;
-} tpm_algo_info_t;
+typedef void			tpm_event_bit_printer(const char *, ...);
 
 enum {
 	TPM2_EVENT_PREBOOT_CERT              = 0x00000000,
@@ -163,7 +163,7 @@ enum {
 typedef struct tpm_parsed_event {
 	unsigned int		event_type;
 	void			(*destroy)(struct tpm_parsed_event *);
-	void			(*print)(struct tpm_parsed_event *);
+	void			(*print)(struct tpm_parsed_event *, tpm_event_bit_printer *);
 
 	union {
 		struct {
@@ -189,10 +189,14 @@ extern tpm_event_log_reader_t *	event_log_open(void);
 extern void			event_log_close(tpm_event_log_reader_t *log);
 extern tpm_event_t *		event_log_read_next(tpm_event_log_reader_t *log);
 extern void			tpm_event_print(tpm_event_t *ev);
+extern void			__tpm_event_print(tpm_event_t *ev, tpm_event_bit_printer *print_fn);
 extern tpm_parsed_event_t *	tpm_event_parse(tpm_event_t *ev);
+extern const char *		tpm_event_type_to_string(unsigned int event_type);
 extern const tpm_evdigest_t *	tpm_event_get_digest(const tpm_event_t *ev, const char *algo_name);
+extern const char *		tpm_efi_variable_event_extract_full_varname(tpm_parsed_event_t *parsed);
 extern bool			tpm_efi_bsa_event_extract_location(tpm_parsed_event_t *parsed,
 					char **dev_ret, char **path_ret);
-extern void			tpm_parsed_event_print(tpm_parsed_event_t *parsed);
+extern void			tpm_parsed_event_print(tpm_parsed_event_t *parsed,
+					tpm_event_bit_printer *);
 
 #endif /* EVENTLOG_H */

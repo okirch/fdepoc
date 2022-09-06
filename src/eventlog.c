@@ -30,17 +30,12 @@
 #include <iconv.h>
 #include <limits.h>
 
+#include <tss2/tss2_tpm2_types.h>
+
 #include "eventlog.h"
 #include "util.h"
 
-enum {
-	__TPM2_ALG_SHA1 = 4,
-	__TPM2_ALG_SHA256 = 11,
-	__TPM2_ALG_SHA384 = 12,
-	__TPM2_ALG_SHA512 = 13,
-
-	TPM2_ALG_MAX
-};
+#define TPM_EVENT_LOG_MAX_ALGOS		64
 
 struct tpm_event_log_reader {
 	int			fd;
@@ -53,7 +48,7 @@ struct tpm_event_log_reader {
 		uint8_t			spec_errata;
 		uint8_t			uintn_size;
 
-		tpm_algo_info_t		algorithms[TPM2_ALG_MAX];
+		tpm_algo_info_t		algorithms[TPM_EVENT_LOG_MAX_ALGOS];
 	} tcg2_info;
 };
 
@@ -103,56 +98,13 @@ __read_u32le_or_eof(int fd, uint32_t *vp)
 }
 
 static const tpm_algo_info_t *
-__get_algo_info(unsigned int algo_id, const tpm_algo_info_t *algorithms, unsigned int num_algoritms)
-{
-	const tpm_algo_info_t *algo;
-
-	if (algo_id >= num_algoritms)
-		return NULL;
-
-	algo = &algorithms[algo_id];
-	if (algo->digest_size == 0)
-		return NULL;
-
-	return algo;
-}
-
-static tpm_algo_info_t		tpm_algorithms[TPM2_ALG_MAX] = {
-	[__TPM2_ALG_SHA1]	= {	"sha1",			20	},
-	[__TPM2_ALG_SHA256]	= {	"sha256",		32	},
-	[__TPM2_ALG_SHA384]	= {	"sha284",		48	},
-	[__TPM2_ALG_SHA512]	= {	"sha512",		64	},
-};
-
-static const tpm_algo_info_t *
-event_well_known_algo_info(unsigned int algo_id)
-{
-	return __get_algo_info(algo_id, tpm_algorithms, TPM2_ALG_MAX);
-}
-
-static const tpm_algo_info_t *
 event_log_get_algo_info(tpm_event_log_reader_t *log, unsigned int algo_id)
 {
 	const tpm_algo_info_t *algo;
 
-	algo = __get_algo_info(algo_id, log->tcg2_info.algorithms, TPM2_ALG_MAX);
-	if (algo == NULL)
-		algo = event_well_known_algo_info(algo_id);
+	if (!(algo = digest_by_tpm_alg(algo_id)))
+		algo = __digest_by_tpm_alg(algo_id, log->tcg2_info.algorithms, TPM_EVENT_LOG_MAX_ALGOS);
 	return algo;
-}
-
-static int
-event_log_get_named_algo(const char *name)
-{
-	const tpm_algo_info_t *algo;
-	int i;
-
-	for (i = 0, algo = tpm_algorithms; i < TPM2_ALG_MAX; ++i, ++algo) {
-		if (algo->openssl_name && !strcasecmp(algo->openssl_name, name))
-			return i;
-	}
-
-	return -1;
 }
 
 tpm_event_log_reader_t *
@@ -206,7 +158,7 @@ static void
 event_log_read_pcrs_tpm1(tpm_event_log_reader_t *log, tpm_event_t *ev)
 {
 	event_log_resize_pcrs(ev, 1);
-	event_log_read_digest(log, &ev->pcr_values[0], __TPM2_ALG_SHA1);
+	event_log_read_digest(log, &ev->pcr_values[0], TPM2_ALG_SHA1);
 }
 
 static void
@@ -359,16 +311,16 @@ tpm_event_type_to_string(unsigned int event_type)
 const tpm_evdigest_t *
 tpm_event_get_digest(const tpm_event_t *ev, const char *algo_name)
 {
+	const tpm_algo_info_t *algo_info;
 	unsigned int i;
-	int algo_id;
 
-	if ((algo_id = event_log_get_named_algo(algo_name)) < 0)
+	if ((algo_info = digest_by_name(algo_name)) < 0)
 		fatal("Unknown algo name \"%s\"\n", algo_name);
 
 	for (i = 0; i < ev->pcr_count; ++i) {
 		const tpm_evdigest_t *md = &ev->pcr_values[i];
 
-		if (md->algo_id == algo_id)
+		if (md->algo_id == algo_info->tcg_id)
 			return md;
 	}
 
@@ -378,49 +330,37 @@ tpm_event_get_digest(const tpm_event_t *ev, const char *algo_name)
 void
 tpm_event_print(tpm_event_t *ev)
 {
-	const unsigned char *data;
+	__tpm_event_print(ev, (void (*)(const char *, ...)) printf);
+}
+
+void
+__tpm_event_print(tpm_event_t *ev, tpm_event_bit_printer *print_fn)
+{
 	tpm_parsed_event_t *parsed;
 	unsigned int i;
 
-	printf("%05lx: ", ev->file_offset);
-	printf("event type=%s pcr=%d digests=%d data=%u: ",
+	print_fn("%05lx: event type=%s pcr=%d digests=%d data=%u bytes\n",
+			ev->file_offset,
 			tpm_event_type_to_string(ev->event_type),
 			ev->pcr_index, ev->pcr_count, ev->event_size);
 
-	if (ev->event_size > 100) {
-		printf(" <hidden>");
-	} else {
-		data = (const unsigned char *) ev->event_data;
-		for (i = 0; i < ev->event_size; ++i) {
-			unsigned char cc = data[i];
-
-			if (isalnum(cc) || ispunct(cc) || cc == ' ' || cc == '\t')
-				putc(cc, stdout);
-			else
-				printf("\\%o", cc);
-		}
-	}
-	putc('\n', stdout);
-
 	parsed = tpm_event_parse(ev);
 	if (parsed)
-		tpm_parsed_event_print(parsed);
+		tpm_parsed_event_print(parsed, print_fn);
 
 	for (i = 0; i < ev->pcr_count; ++i) {
 		const tpm_evdigest_t *d = &ev->pcr_values[i];
 		const tpm_algo_info_t *algo;
-		unsigned int j;
 
-		algo = event_well_known_algo_info(d->algo_id);
+		algo = digest_by_tpm_alg(d->algo_id);
 		if (algo)
-			printf("  %-10s", algo->openssl_name);
+			print_fn("  %-10s %s\n", algo->openssl_name, digest_print_value(d));
 		else
-			printf("  %-10u", d->algo_id);
-
-		for (j = 0 ; j < d->size; ++j)
-			printf("%02x", d->data[j]);
-		printf("\n");
+			print_fn("  %-10u %s\n", d->algo_id, digest_print_value(d));
 	}
+
+	print_fn("  Data:\n");
+	hexdump(ev->event_data, ev->event_size, print_fn, 8);
 }
 
 static tpm_parsed_event_t *
@@ -443,10 +383,10 @@ tpm_parsed_event_free(tpm_parsed_event_t *parsed)
 }
 
 void
-tpm_parsed_event_print(tpm_parsed_event_t *parsed)
+tpm_parsed_event_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *print_fn)
 {
 	if (parsed && parsed->print)
-		parsed->print(parsed);
+		parsed->print(parsed, print_fn);
 }
 
 typedef struct bufparser {
@@ -610,15 +550,22 @@ bufparser_get_utf16le(bufparser_t *bp, size_t len)
 }
 
 static inline const char *
-print_guid(const unsigned char *guid)
+tpm_event_decode_uuid(const unsigned char *data)
 {
-	static char buf[64];
+	static char uuid[64];
+	uint32_t w0;
+	uint16_t hw0, hw1;
 
-	snprintf(buf, sizeof(buf),
-			"%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
-			guid[0], guid[1], guid[2], guid[3], guid[4], guid[5], guid[6], guid[7],
-			guid[8], guid[9], guid[10], guid[11], guid[12], guid[13], guid[14], guid[15]);
-	return buf;
+	w0 = le32toh(((uint32_t *) data)[0]);
+	hw0 = le32toh(((uint16_t *) data)[2]);
+	hw1 = le32toh(((uint16_t *) data)[3]);
+	snprintf(uuid, sizeof(uuid), "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+			w0, hw0, hw1,
+			data[8], data[9],
+			data[10], data[11], data[12],
+			data[13], data[14], data[15]
+			);
+	return uuid;
 }
 
 /*
@@ -630,11 +577,10 @@ __tpm_event_efi_variable_destroy(tpm_parsed_event_t *parsed)
 }
 
 static void
-__tpm_event_efi_variable_print(tpm_parsed_event_t *parsed)
+__tpm_event_efi_variable_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *print_fn)
 {
-	printf("  --> EFI variable %s-%s: %u bytes of data\n",
-			parsed->efi_variable_event.variable_name,
-			print_guid(parsed->efi_variable_event.variable_guid),
+	print_fn("  --> EFI variable %s: %u bytes of data\n",
+			tpm_efi_variable_event_extract_full_varname(parsed),
 			parsed->efi_variable_event.len);
 }
 
@@ -666,10 +612,10 @@ __tpm_event_parse_tcg2_info(tpm_event_t *ev, struct tpm_event_log_tcg2_info *inf
 		 || !bufparser_get_u16le(&buf, &algo_size))
 			return false;
 
-		if (algo_id >= TPM2_ALG_MAX)
+		if (algo_id > TPM2_ALG_LAST)
 			continue;
 
-		if ((wk = event_well_known_algo_info(algo_id)) == NULL) {
+		if ((wk = digest_by_tpm_alg(algo_id)) == NULL) {
 			info->algorithms[algo_id].digest_size = algo_size;
 		} else if (wk->digest_size != algo_size) {
 			fprintf(stderr, "Conflicting digest sizes for %s: %u versus %u\n",
@@ -704,6 +650,17 @@ __tpm_event_parse_efi_variable(tpm_event_t *ev, tpm_parsed_event_t *parsed, bufp
 	parsed->efi_variable_event.len = data_len;
 
 	return parsed;
+}
+
+const char *
+tpm_efi_variable_event_extract_full_varname(tpm_parsed_event_t *parsed)
+{
+	static char varname[256];
+
+	snprintf(varname, sizeof(varname), "%s-%s", 
+			parsed->efi_variable_event.variable_name,
+			tpm_event_decode_uuid(parsed->efi_variable_event.variable_guid));
+	return varname;
 }
 
 static const char *
@@ -764,25 +721,9 @@ __efi_device_path_type_to_string(unsigned int type, unsigned int subtype)
 static const char *
 __tpm_event_efi_device_path_item_harddisk_uuid(const struct efi_device_path_item *item)
 {
-	static char uuid[64];
-
 	if (item->type == TPM2_EFI_DEVPATH_TYPE_MEDIA_DEVICE
-	 && item->subtype == TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_HARDDRIVE) {
-		const unsigned char *data = item->data + 20;
-		uint32_t w0;
-		uint16_t hw0, hw1;
-
-		w0 = le32toh(((uint32_t *) data)[0]);
-		hw0 = le32toh(((uint16_t *) data)[2]);
-		hw1 = le32toh(((uint16_t *) data)[3]);
-		snprintf(uuid, sizeof(uuid), "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-				w0, hw0, hw1,
-				data[8], data[9],
-				data[10], data[11], data[12],
-				data[13], data[14], data[15]
-				);
-		return uuid;
-	}
+	 && item->subtype == TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_HARDDRIVE)
+		return tpm_event_decode_uuid(item->data + 20);
 
 	return NULL;
 }
@@ -887,16 +828,16 @@ __tpm_event_efi_bsa_destroy(tpm_parsed_event_t *parsed)
 }
 
 static void
-__tpm_event_efi_bsa_print(tpm_parsed_event_t *parsed)
+__tpm_event_efi_bsa_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *print_fn)
 {
 #if 0
-	printf("BSA image loc=%Lx", (unsigned long long) parsed->efi_bsa_event.image_location);
-	printf(" len=%Lx", (unsigned long long) parsed->efi_bsa_event.image_length);
-	printf(" lt-addr=%Lx", (unsigned long long) parsed->efi_bsa_event.image_lt_address);
-	printf("\n");
+	print_fn("BSA image loc=%Lx", (unsigned long long) parsed->efi_bsa_event.image_location);
+	print_fn(" len=%Lx", (unsigned long long) parsed->efi_bsa_event.image_length);
+	print_fn(" lt-addr=%Lx", (unsigned long long) parsed->efi_bsa_event.image_lt_address);
+	print_fn("\n");
 #endif
 
-	printf("Boot Service Application; device path:\n");
+	print_fn("Boot Service Application; device path:\n");
 	__tpm_event_efi_device_path_print(&parsed->efi_bsa_event.device_path);
 }
 
@@ -960,7 +901,6 @@ tpm_efi_bsa_event_extract_location(tpm_parsed_event_t *parsed, char **dev_ret, c
 
 	drop_string(path_ret);
 
-	printf("Analyzing device path:\n");
 	efi_path = &parsed->efi_bsa_event.device_path;
 	for (i = 0, item = efi_path->entries; i < efi_path->count; ++i, ++item) {
 		char pathbuf[PATH_MAX];
@@ -975,13 +915,11 @@ tpm_efi_bsa_event_extract_location(tpm_parsed_event_t *parsed, char **dev_ret, c
 				return false;
 			}
 
-			printf("device is %s\n", dev_path);
 			drop_string(dev_ret);
 			*dev_ret = dev_path;
 		}
 
 		if ((filepath = __tpm_event_efi_device_path_item_file_path(item)) != NULL) {
-			printf("file is %s\n", filepath);
 			assign_string(path_ret, filepath);
 		}
 	}
