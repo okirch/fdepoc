@@ -88,15 +88,30 @@ digest_by_name(const char *name)
 }
 
 const char *
+digest_algo_name(const tpm_evdigest_t *md)
+{
+	static char temp[32];
+	const char *name;
+
+	if (md->algo == NULL)
+		return "unknown";
+
+	if ((name = md->algo->openssl_name) == NULL) {
+		snprintf(temp, sizeof(temp), "TPM2_ALG_%u", md->algo->tcg_id);
+		name = temp;
+	}
+
+	return name;
+}
+
+const char *
 digest_print(const tpm_evdigest_t *md)
 {
 	static char buffer[1024];
-	const tpm_algo_info_t *algo;
 
-	if ((algo = digest_by_tpm_alg(md->algo_id)) != NULL)
-		snprintf(buffer, sizeof(buffer), "%s: %s", algo->openssl_name, digest_print_value(md));
-	else
-		snprintf(buffer, sizeof(buffer), "TPM2_ALG_%u: %s", md->algo_id, digest_print_value(md));
+	snprintf(buffer, sizeof(buffer), "%s: %s",
+			digest_algo_name(md),
+			digest_print_value(md));
 	return buffer;
 }
 

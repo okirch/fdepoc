@@ -96,7 +96,7 @@ parse_digest(const char *string, const char *algo)
 		fatal("%s: unknown digest name \"%s\"\n", __func__, algo);
 
 	memset(&md, 0, sizeof(md));
-	md.algo_id = algo_info->tcg_id;
+	md.algo = algo_info;
 
 	md.size = parse_octet_string(string, md.data, sizeof(md.data));
 	if (md.size != algo_info->digest_size) {

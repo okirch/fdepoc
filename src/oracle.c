@@ -42,18 +42,19 @@ enum {
 };
 
 struct predictor {
-	unsigned int	index;
-	int		from;
+	unsigned int		index;
+	int			from;
 
-	const char *	algo;
-	const EVP_MD *	md;
+	const char *		algo;
+	const tpm_algo_info_t *	algo_info;
+	const EVP_MD *		md;
 
-	tpm_event_t *	event_log;
+	tpm_event_t *		event_log;
 
-	void		(*report_fn)(struct predictor *);
+	void			(*report_fn)(struct predictor *);
 
-	unsigned int	md_size;
-	unsigned char	md_value[EVP_MAX_MD_SIZE];
+	unsigned int		md_size;
+	unsigned char		md_value[EVP_MAX_MD_SIZE];
 };
 
 #define GRUB_PCR_SNAPSHOT_UUID	"7ce323f2-b841-4d30-a0e9-5474a76c9a3f"
@@ -236,7 +237,12 @@ predictor_new(unsigned int index, int from, const char *algo_name, const char *o
 		usage(1, NULL);
 	}
 
+	pred->algo_info = digest_by_name(pred->algo);
+	if (pred->algo_info == NULL)
+		fatal("Digest algorithm %s not implemented\n");
+
 	pred->md_size = EVP_MD_size(pred->md);
+	assert(pred->md_size == pred->algo_info->digest_size);
 
 	if (!output_format || !strcasecmp(output_format, "plain"))
 		pred->report_fn = predictor_report_plain;
@@ -298,8 +304,7 @@ predictor_compute_digest(struct predictor *pred, const char *data, unsigned int 
 	EVP_DigestFinal_ex(mdctx, md.data, &md.size);
 	EVP_MD_CTX_free(mdctx);
 
-	/* FIXME: for completeness' sake, we should set the digest's algorithm ID */
-	md.algo_id = -1;
+	md.algo = pred->algo_info;
 
 	return &md;
 }

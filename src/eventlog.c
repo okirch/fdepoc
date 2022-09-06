@@ -138,7 +138,7 @@ event_log_read_digest(tpm_event_log_reader_t *log, tpm_evdigest_t *dgst, int tpm
 
 	__read_exactly(log->fd, dgst->data, algo->digest_size);
 
-	dgst->algo_id = tpm_hash_algo_id;
+	dgst->algo = algo;
 	dgst->size = algo->digest_size;
 }
 
@@ -320,7 +320,7 @@ tpm_event_get_digest(const tpm_event_t *ev, const char *algo_name)
 	for (i = 0; i < ev->pcr_count; ++i) {
 		const tpm_evdigest_t *md = &ev->pcr_values[i];
 
-		if (md->algo_id == algo_info->tcg_id)
+		if (md->algo == algo_info)
 			return md;
 	}
 
@@ -350,13 +350,8 @@ __tpm_event_print(tpm_event_t *ev, tpm_event_bit_printer *print_fn)
 
 	for (i = 0; i < ev->pcr_count; ++i) {
 		const tpm_evdigest_t *d = &ev->pcr_values[i];
-		const tpm_algo_info_t *algo;
 
-		algo = digest_by_tpm_alg(d->algo_id);
-		if (algo)
-			print_fn("  %-10s %s\n", algo->openssl_name, digest_print_value(d));
-		else
-			print_fn("  %-10u %s\n", d->algo_id, digest_print_value(d));
+		print_fn("  %-10s %s\n", d->algo->openssl_name, digest_print_value(d));
 	}
 
 	print_fn("  Data:\n");
@@ -616,7 +611,11 @@ __tpm_event_parse_tcg2_info(tpm_event_t *ev, struct tpm_event_log_tcg2_info *inf
 			continue;
 
 		if ((wk = digest_by_tpm_alg(algo_id)) == NULL) {
+			char fake_name[32];
+
+			snprintf(fake_name, sizeof(fake_name), "TPM2_ALG_%u", algo_id);
 			info->algorithms[algo_id].digest_size = algo_size;
+			info->algorithms[algo_id].openssl_name = strdup(fake_name);
 		} else if (wk->digest_size != algo_size) {
 			fprintf(stderr, "Conflicting digest sizes for %s: %u versus %u\n",
 					wk->openssl_name, wk->digest_size, algo_size);
