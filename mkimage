@@ -1,6 +1,7 @@
 #!/bin/bash
 
 IMGDIR=./ALP
+IMGFLAVOR=SelfInstall_NonTransactional
 BUILD_BASE=/tmp/myimage
 BUILD_ROOT="$BUILD_BASE/root"
 
@@ -37,7 +38,7 @@ build)
 obuild)
 	rm -rf /var/cache/kiwi/packages/da4a5b0de53b179eb79d2dff631b5939
 	rm -rf $BUILD_BASE
-	kiwi-ng --profile SelfInstall \
+	kiwi-ng --profile $IMGFLAVOR \
 		$DEBUG $LOGOPTION \
 		system build \
 		--description $IMGDIR \
@@ -47,7 +48,7 @@ obuild)
 
 prepare)
 	rm -rf $BUILD_ROOT
-	kiwi-ng --profile SelfInstall \
+	kiwi-ng --profile $IMGFLAVOR \
 		$DEBUG $LOGOPTION \
 		system prepare \
 		--description $IMGDIR \
@@ -65,7 +66,7 @@ create)
 		echo "***********"
 	fi
 
-	kiwi-ng --profile SelfInstall \
+	kiwi-ng --profile $IMGFLAVOR \
 		$DEBUG $LOGOPTION \
 		system create \
 		--root $BUILD_ROOT \

@@ -35,7 +35,7 @@ echo "Configure image: [$kiwi_iname]-[$kiwi_profiles]..."
 # somewhere needs to load the xts crypto
 # module, otherwise luksOpen will fail
 #--------------------------------------
-modprobe xts
+modprobe xts || true
 
 # Systemd controls the console font now
 echo FONT="eurlatgr.psfu" >> /etc/vconsole.conf

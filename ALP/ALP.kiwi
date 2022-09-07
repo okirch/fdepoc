@@ -759,9 +759,7 @@
 	    luks_version="luks2"
 	    luks="1234"
         >
-            <bootloader name="grub2"
-	    	console="serial"
-		use_disk_password="true" />
+            <bootloader name="grub2" console="gfxterm" use_disk_password="true" />
             <systemdisk>
                 <volume name="home"/>
                 <volume name="root"/>
@@ -808,8 +806,10 @@
             devicepersistency="by-uuid"
             btrfs_root_is_snapshot="true"
             btrfs_quota_groups="true"
+	    luks_version="luks2"
+	    luks="1234"
         >
-            <bootloader name="grub2" console="gfxterm"/>
+            <bootloader name="grub2" console="gfxterm" use_disk_password="true" />
             <systemdisk>
                 <volume name="home"/>
                 <volume name="root"/>
@@ -827,6 +827,10 @@
                 <oem-swap>true</oem-swap>
                 <oem-device-filter>/dev/ram</oem-device-filter>
                 <oem-multipath-scan>false</oem-multipath-scan>
+                <!-- cannot kexec. 1. this fails right now; and 2. we would end up with totally
+                     random PCR values in firstboot, which would throw our key sealing off the
+                     rails. -->
+                <oem-reboot>true</oem-reboot>
             </oemconfig>
             <machine memory="512" guestOS="suse" HWversion="4">
                 <vmdisk id="0" controller="ide"/>
