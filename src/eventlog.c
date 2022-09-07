@@ -225,6 +225,57 @@ again:
 	return ev;
 }
 
+/*
+ * TCGv2 defines a "magic event" record that conveys some additional information
+ * on where the log was created, the hash sizes for the algorithms etc.
+ */
+static bool
+__tpm_event_parse_tcg2_info(tpm_event_t *ev, struct tpm_event_log_tcg2_info *info)
+{
+	bufparser_t buf;
+	uint32_t i, algo_info_count;
+
+	bufparser_init(&buf, ev->event_data, ev->event_size);
+
+	/* skip over magic signature string */
+	bufparser_skip(&buf, 16);
+
+	if (!bufparser_get_u32le(&buf, &info->platform_class)
+	 || !bufparser_get_u8(&buf, &info->spec_version_major)
+	 || !bufparser_get_u8(&buf, &info->spec_version_minor)
+	 || !bufparser_get_u8(&buf, &info->spec_errata)
+	 || !bufparser_get_u8(&buf, &info->uintn_size)
+	 || !bufparser_get_u32le(&buf, &algo_info_count)
+	   )
+		return false;
+
+	for (i = 0; i < algo_info_count; ++i) {
+		uint16_t algo_id, algo_size;
+		const tpm_algo_info_t *wk;
+
+		if (!bufparser_get_u16le(&buf, &algo_id)
+		 || !bufparser_get_u16le(&buf, &algo_size))
+			return false;
+
+		if (algo_id > TPM2_ALG_LAST)
+			continue;
+
+		if ((wk = digest_by_tpm_alg(algo_id)) == NULL) {
+			char fake_name[32];
+
+			snprintf(fake_name, sizeof(fake_name), "TPM2_ALG_%u", algo_id);
+			info->algorithms[algo_id].digest_size = algo_size;
+			info->algorithms[algo_id].openssl_name = strdup(fake_name);
+		} else if (wk->digest_size != algo_size) {
+			fprintf(stderr, "Conflicting digest sizes for %s: %u versus %u\n",
+					wk->openssl_name, wk->digest_size, algo_size);
+		} else
+			/* NOP */ ;
+	}
+
+	return true;
+}
+
 const char *
 tpm_event_type_to_string(unsigned int event_type)
 {
@@ -418,53 +469,6 @@ __tpm_event_efi_variable_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer
 	print_fn("  --> EFI variable %s: %u bytes of data\n",
 			tpm_efi_variable_event_extract_full_varname(parsed),
 			parsed->efi_variable_event.len);
-}
-
-static bool
-__tpm_event_parse_tcg2_info(tpm_event_t *ev, struct tpm_event_log_tcg2_info *info)
-{
-	bufparser_t buf;
-	uint32_t i, algo_info_count;
-
-	bufparser_init(&buf, ev->event_data, ev->event_size);
-
-	/* skip over magic signature string */
-	bufparser_skip(&buf, 16);
-
-	if (!bufparser_get_u32le(&buf, &info->platform_class)
-	 || !bufparser_get_u8(&buf, &info->spec_version_major)
-	 || !bufparser_get_u8(&buf, &info->spec_version_minor)
-	 || !bufparser_get_u8(&buf, &info->spec_errata)
-	 || !bufparser_get_u8(&buf, &info->uintn_size)
-	 || !bufparser_get_u32le(&buf, &algo_info_count)
-	   )
-		return false;
-
-	for (i = 0; i < algo_info_count; ++i) {
-		uint16_t algo_id, algo_size;
-		const tpm_algo_info_t *wk;
-
-		if (!bufparser_get_u16le(&buf, &algo_id)
-		 || !bufparser_get_u16le(&buf, &algo_size))
-			return false;
-
-		if (algo_id > TPM2_ALG_LAST)
-			continue;
-
-		if ((wk = digest_by_tpm_alg(algo_id)) == NULL) {
-			char fake_name[32];
-
-			snprintf(fake_name, sizeof(fake_name), "TPM2_ALG_%u", algo_id);
-			info->algorithms[algo_id].digest_size = algo_size;
-			info->algorithms[algo_id].openssl_name = strdup(fake_name);
-		} else if (wk->digest_size != algo_size) {
-			fprintf(stderr, "Conflicting digest sizes for %s: %u versus %u\n",
-					wk->openssl_name, wk->digest_size, algo_size);
-		} else
-			/* NOP */ ;
-	}
-
-	return true;
 }
 
 static bool
