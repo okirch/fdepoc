@@ -1,6 +1,6 @@
 #!/bin/bash
 
-KIWI_BUILD_RESULT=/tmp/myimage/alp-fde-demo.x86_64-1.15.4.install.iso
+KIWI_BUILD_RESULT=/tmp/myimage/ALP.x86_64-0.1.install.iso
 
 SYSTEM_IMAGE=/tmp/build/system-image
 SYSTEM_IMAGE_SIZE=2048
@@ -14,7 +14,7 @@ esac
 
 EXTRA_BOOT_OPTIONS=",uefi,loader=/usr/share/qemu/ovmf-x86_64-smm-devel-code.bin,nvram_template=/usr/share/qemu/ovmf-x86_64-smm-devel-vars.bin"
 EXTRA_BOOT_OPTIONS=",uefi,loader=/usr/share/qemu/ovmf-x86_64-smm-suse-code.bin,nvram_template=/usr/share/qemu/ovmf-x86_64-smm-suse-vars.bin"
-EXTRA_BOOT_OPTIONS=",uefi,loader=/usr/share/qemu/ovmf-x86_64-smm-suse-code.bin,nvram_template=$PWD/ovmf-x86_64-smm-suse-vars.bin"
+EXTRA_BOOT_OPTIONS=",uefi,loader=/usr/share/qemu/ovmf-x86_64-smm-suse-code.bin,nvram_template=$PWD/ovmf-x86_64-smm-alp-vars.bin"
 # EXTRA_BOOT_OPTIONS=
 
 dd if=/dev/zero of=$SYSTEM_IMAGE bs=1MiB count=$SYSTEM_IMAGE_SIZE  status=none

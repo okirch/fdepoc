@@ -13,9 +13,9 @@ What the PoC does so far, and how to use it:
    This will use kiwi to create an OEM image
 
    This image will contain a LUKS encrypted system partition, protected
-   by a random key and a fallback password of "" (ie empty password).
+   by a random key and a fallback password of "1234".
 
-   The root password is "traum"
+   The root password is empty.
 
  * As root, run
  	./run-install
@@ -28,6 +28,9 @@ What the PoC does so far, and how to use it:
 
  * Booting into the new sytem should work without you having to
    enter any LUKS passphrase.
+
+ * BUG: Currently, it does not reach a login prompt because
+   some systemd service called ignition chokes and times out...
 
  * The system goes through firstboot and massages the LUKS
    setup. Among other things, it re-encrypts the system
