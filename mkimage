@@ -9,16 +9,6 @@ DEBUG=--debug
 REPOS="--set-repo obs://openSUSE:Leap:15.4/standard"
 REPOS=
 
-function extra_pkg_args {
-
-	# not working...
-	if test -d extra-pkgs; then
-		echo -e "--add-repo dir:$PWD/extra-pkgs,rpm-dir"
-	fi
-}
-
-# PACKAGES=$(extra_pkg_args)
-
 case $1 in
 prepare|create|build|obuild)
 	verb=$1;;
@@ -43,7 +33,6 @@ obuild)
 		system build \
 		--description $IMGDIR \
 		$REPOS \
-		$PACKAGES \
 		--target-dir $BUILD_BASE;;
 
 prepare)
@@ -54,7 +43,6 @@ prepare)
 		--description $IMGDIR \
 		--clear-cache \
 		$REPOS \
-		$PACKAGES \
 		--root $BUILD_ROOT;;
 
 create)
