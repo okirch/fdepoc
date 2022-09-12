@@ -507,6 +507,10 @@ tpm_efi_variable_event_extract_full_varname(tpm_parsed_event_t *parsed)
 	return varname;
 }
 
+/*
+ * Handle EFI device path information in a rudimentary fashion.
+ * Enought to locate the mentioned files in the file system.
+ */
 static const char *
 __efi_device_path_type_to_string(unsigned int type, unsigned int subtype)
 {
@@ -667,8 +671,22 @@ __tpm_event_efi_device_path_print(const efi_device_path_t *path)
 }
 
 static void
+__tpm_event_efi_device_path_destroy(efi_device_path_t *path)
+{
+	unsigned int i;
+
+	for (i = 0; i < path->count; ++i) {
+		struct efi_device_path_item *item = &path->entries[i];
+
+		free(item->data);
+	}
+	memset(path, 0, sizeof(*path));
+}
+
+static void
 __tpm_event_efi_bsa_destroy(tpm_parsed_event_t *parsed)
 {
+	__tpm_event_efi_device_path_destroy(&parsed->efi_bsa_event.device_path);
 }
 
 static void
@@ -686,7 +704,7 @@ __tpm_event_efi_bsa_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *pri
 }
 
 static bool
-__tpm_event_parse_eft_device_path(efi_device_path_t *path, bufparser_t *bp)
+__tpm_event_parse_efi_device_path(efi_device_path_t *path, bufparser_t *bp)
 {
 	while (!bufparser_eof(bp)) {
 		struct efi_device_path_item *item;
@@ -727,7 +745,7 @@ __tpm_event_parse_efi_bsa(tpm_event_t *ev, tpm_parsed_event_t *parsed, bufparser
 	 || !bufparser_get_buffer(bp, device_path_len, &path_buf))
 		return false;
 
-	if (!__tpm_event_parse_eft_device_path(&parsed->efi_bsa_event.device_path, &path_buf))
+	if (!__tpm_event_parse_efi_device_path(&parsed->efi_bsa_event.device_path, &path_buf))
 		return false;
 
 	return true;
