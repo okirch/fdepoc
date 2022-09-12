@@ -6,8 +6,6 @@ BUILD_BASE=/tmp/myimage
 BUILD_ROOT="$BUILD_BASE/root"
 
 DEBUG=--debug
-REPOS="--set-repo obs://openSUSE:Leap:15.4/standard"
-REPOS=
 
 case $1 in
 prepare|create|build|obuild)
@@ -32,7 +30,6 @@ obuild)
 		$DEBUG $LOGOPTION \
 		system build \
 		--description $IMGDIR \
-		$REPOS \
 		--target-dir $BUILD_BASE;;
 
 prepare)
@@ -42,7 +39,6 @@ prepare)
 		system prepare \
 		--description $IMGDIR \
 		--clear-cache \
-		$REPOS \
 		--root $BUILD_ROOT;;
 
 create)
