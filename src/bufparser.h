@@ -137,6 +137,8 @@ bufparser_get_buffer(bufparser_t *bp, unsigned int count, bufparser_t *res)
 	return true;
 }
 
+#include <iconv.h>
+
 static inline bool
 __convert_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes)
 {

@@ -199,4 +199,14 @@ extern bool			tpm_efi_bsa_event_extract_location(tpm_parsed_event_t *parsed,
 extern void			tpm_parsed_event_print(tpm_parsed_event_t *parsed,
 					tpm_event_bit_printer *);
 
+struct bufparser; /* fwd decl */
+
+/* Device path related helper functions */
+extern bool			__tpm_event_parse_efi_device_path(efi_device_path_t *, struct bufparser *);
+extern void			__tpm_event_efi_device_path_print(const efi_device_path_t *path);
+extern void			__tpm_event_efi_device_path_destroy(efi_device_path_t *path);
+extern const char *		__tpm_event_efi_device_path_item_harddisk_uuid(const struct efi_device_path_item *);
+extern const char *		__tpm_event_efi_device_path_item_file_path(const struct efi_device_path_item *);
+
+
 #endif /* EVENTLOG_H */
