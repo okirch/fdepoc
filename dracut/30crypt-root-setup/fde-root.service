@@ -1,0 +1,23 @@
+[Unit]
+Description=Mount Encrypted Root Partition
+SourcePath=/etc/crypttab
+DefaultDependencies=no
+IgnoreOnIsolate=true
+After=systemd-udevd-kernel.socket
+Before=blockdev@dev-mapper-luks.target
+Wants=blockdev@dev-mapper-luks.target
+Conflicts=umount.target
+Before=ignition
+RequiresMountsFor=/.root.keyfile
+BindsTo=dev-disk-by\x2duuid-@ESCAPED_UUID@.device
+After=dev-disk-by\x2duuid-@ESCAPED_UUID@.device
+Before=umount.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutSec=0
+KeyringMode=shared
+OOMScoreAdjust=500
+ExecStart=/usr/lib/systemd/systemd-cryptsetup attach luks /dev/disk/by-uuid/@UUID@ /.root.keyfile ''
+ExecStop=/usr/lib/systemd/systemd-cryptsetup detach luks
