@@ -1,19 +1,32 @@
 #!/bin/bash
+*
+#   Copyright (C) 2022 SUSE LLC
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#
+#   Written by Olaf Kirch <okir@suse.com>
 
 # Tunables for full disk encryption
 
 # List of PCRs to seal the LUKS key to
-#FDE_SEAL_PCR_LIST=0,1,2,3,4,5,6,7
-#FDE_SEAL_PCR_LIST=0,4
-FDE_SEAL_PCR_LIST=0,2,9
+# FIXME: should probably include PCR7
 FDE_SEAL_PCR_LIST=0,2,4,9
 FDE_SEAL_PCR_BANK=sha256
 
-# It appears that the 128 is the maximum size of what TPM2_Load is willing to handle
+# It appears that 128 is the maximum size of what TPM2_Load is willing to handle
 FDE_KEY_SIZE_BYTES=128
-
-FDE_ROOTKEY_EFIVAR_NAME=RootKey
-FDE_ROOTKEY_EFIVAR_FULL=RootKey-58aca851-8af7-4738-a542-266e21f5cad9
 
 # These need to match exactly what grub2 uses to create the SRK
 TPM2_SRK_ATTRS="userwithauth|restricted|decrypt|fixedtpm|fixedparent|noda|sensitivedataorigin"
@@ -488,34 +501,17 @@ function tpm_seal_secret {
     efi_grub_dir="$2"
     sealed_secret=$3
 
-    # using the tpm2-tss FAPI (which pcr-oracle --from-current coes) needs a copy of
-    # /etc/tpm2-tss/fapi-config.json 
-    if false; then
-    tpm2_pcrread sha256:$FDE_SEAL_PCR_LIST
-    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
-		--from-zero 9 \
-		file "${efi_grub_dir}/grub.cfg"
-    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
-		--from-snapshot 0
-    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
-		--from-snapshot 2
-    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
-		--from-current 0
-    fi
-
     # Construct a set of PCR values against which to seal the key.
     # Most of these come straight from the PCR snapshot taken by tpm_record_pcrs
     # in grub.cfg. The only exception is PCR9, which covers the files that grub
     # reads during early boot (ie grub.cfg). And that grub.cfg file is
     # going to be different from the one that got used when booting the installer.
-    pcr_values_file=/tmp/pcr-set
+    pcr_values_file=$(fde_make_tempfile pcr-set)
     tpm_build_pcrset "${efi_grub_dir}/grub.cfg" >"${pcr_values_file}"
 
     # Since we're now sealing the key against a predicted value of PCR9 (rather
     # than the actual value), we can no longer verify that the key can be
     # unsealed.
-    # FIXME: during initial installation, we should verify that seal/unseal
-    # works *at all*.
     if ! seal_key_verify $pcr_values_file $secret $sealed_secret >&2; then
 	rm -f $sealed_secret
 	# FIXME: this should be an error dialog.
@@ -645,6 +641,8 @@ function fde_protect_tpm {
 
     # ... then seal the key against a PCR9 value that covers grub.cfg
     tpm_seal_secret "${luks_keyfile}" "${efi_grub_dir}" "$efi_grub_dir/sealed.key"
+
+    return $?
 }
 
 function fde_setup_encrypted {
@@ -888,18 +886,6 @@ function fde_firstboot {
     fde_setup_unencrypted "$@"
 }
 
-function foo {
-
-    # it appears that the 128 is the maximum size of what TPM2_Load is willing to handle
-    if ! tpm_test 128 2>/var/log/fde.log; then
-	fde_error "Failed to seal LUKS encryption key."
-	return 1
-    fi
-
-    efi_grub_dir=/boot/efi/EFI/BOOT
-    tpm_seal_secret "/.root.keyfile" "${efi_grub_dir}" "$efi_grub_dir/sealed.key" 2>>/var/log/fde.log
-}
-
 function fde_systemd_firstboot {
 
     fde_infobox "Full Disk Encryption with TPM2 support"
@@ -907,14 +893,16 @@ function fde_systemd_firstboot {
     # FIXME: rather than hard-coding the recovery password here,
     # have kiwi write it to /.root.something and read it from there
     fde_firstboot $(__get_root_dev) /.root.keyfile "1234" 2>/var/log/fde-firstboot.log
+
+    fde_clean_tempdir
 }
 
 function fde_post {
 
-	:
+    :
 }
 
 function fde_cleanup {
 
-	:
+    :
 }
