@@ -164,8 +164,10 @@
             btrfs_root_is_snapshot="true"
             btrfs_quota_groups="true"
             spare_part="5G" spare_part_mountpoint="/var" spare_part_fs="btrfs" spare_part_is_last="true" spare_part_fs_attributes="no-copy-on-write"
+	    luks_version="luks2"
+	    luks="1234"
         >
-            <bootloader name="grub2" console="gfxterm" />
+            <bootloader name="grub2" console="gfxterm" use_disk_password="true" />
             <systemdisk>
                 <volume name="home"/>
                 <volume name="root"/>
@@ -858,6 +860,7 @@
         <package name="kernel-default"/>
 
 	<!-- full disk encryption stuff -->
+	<package name="device-mapper"/>
 	<package name="cryptsetup"/>
 	<package name="system-user-tss"/>
 	<package name="libtss2-fapi1"/>

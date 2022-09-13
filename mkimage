@@ -2,6 +2,7 @@
 
 IMGDIR=./ALP
 IMGFLAVOR=SelfInstall_NonTransactional
+IMGFLAVOR=kvm-and-xen_NonTransactional
 BUILD_BASE=/tmp/myimage
 BUILD_ROOT="$BUILD_BASE/root"
 
@@ -49,6 +50,8 @@ create)
 		cp -v firstboot/fde $FDE_SCRIPT
 		echo "***********"
 	fi
+
+	cp -av dracut/30crypt-root-setup $BUILD_BASE/root/usr/lib/dracut/modules.d/ || exit 1
 
 	kiwi-ng --profile $IMGFLAVOR \
 		$DEBUG $LOGOPTION \
