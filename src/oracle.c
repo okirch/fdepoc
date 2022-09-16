@@ -487,10 +487,10 @@ predictor_compute_efi_variable(struct predictor *pred, tpm_event_t *ev, const ch
 	const tpm_evdigest_t *md;
 
 	if (!(parsed = tpm_event_parse(ev)))
-		fatal("Unable to parse EFI_VARIABLE_BOOT event from TPM log");
+		fatal("Unable to parse EFI_VARIABLE event from TPM log");
 
 	if (!(var_name = tpm_efi_variable_event_extract_full_varname(parsed)))
-		fatal("Unable to extract EFI variable name from EFI_VARIABLE_BOOT event\n");
+		fatal("Unable to extract EFI variable name from EFI_VARIABLE event\n");
 
 	/* Not quite: we need to compute the digest over the data blob in the
 	 * exact format that's included in the raw event data. */
@@ -519,27 +519,35 @@ predictor_update_eventlog(struct predictor *pred)
 
 			switch (ev->event_type) {
 			case TPM2_EFI_BOOT_SERVICES_APPLICATION:
+			case TPM2_EFI_BOOT_SERVICES_DRIVER:
 				new_digest = predictor_compute_boot_services_application(pred, ev, &efi_partition, &efi_application);
 				description = efi_application;
 				break;
 
 			case TPM2_EFI_VARIABLE_BOOT:
+			case TPM2_EFI_VARIABLE_AUTHORITY:
+			case TPM2_EFI_VARIABLE_DRIVER_CONFIG:
 				new_digest = predictor_compute_efi_variable(pred, ev, &description);
 				break;
 
 			/* Probably needs to be done:
 			 * EFI_GPT_EVENT: used in updates of PCR5, seems to be a hash of several GPT headers.
 			 *	We should probably rebuild in case someone changed the partitioning.
+			 *	However, not needed as long as we don't seal against PCR5.
 			 * EFI_VARIABLE_DRIVER_CONFIG: all the secure boot variables get hashed into this,
 			 *	including PK, dbx, etc.
 			 */
 
+			case TPM2_EVENT_NO_ACTION:
 			case TPM2_EVENT_S_CRTM_CONTENTS:
 			case TPM2_EVENT_S_CRTM_VERSION:
+			case TPM2_EFI_PLATFORM_FIRMWARE_BLOB:
 			case TPM2_EVENT_SEPARATOR:
 			case TPM2_EVENT_POST_CODE:
 			case TPM2_EFI_HANDOFF_TABLES:
 			case TPM2_EFI_GPT_EVENT:
+			case TPM2_EFI_ACTION:
+			case TPM2_EVENT_IPL:			/* used by grub2 for PCR9 */
 				new_digest = old_digest;
 				break;
 
