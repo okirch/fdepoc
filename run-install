@@ -1,9 +1,8 @@
 #!/bin/bash
 
 if true; then
-	KIWI_BUILD_RESULT=/tmp/myimage/ALP.x86_64-0.1.install.iso
-	KIWI_BUILD_RESULT=/tmp/myimage/ALP.x86_64-0.1.raw
-	KIWI_BUILD_RESULT=/tmp/myimage/ALP.x86_64-0.1.qcow2
+	KIWI_BUILD_RESULT=/tmp/myimage/ALP-VM.x86_64-kvm.qcow2
+
 	UEFI_VARS_FILE=$PWD/ovmf-x86_64-smm-alp-vars.bin
 else
 	KIWI_BUILD_RESULT=/tmp/myimage/alp-fde-demo.x86_64-1.15.4.install.iso
@@ -57,9 +56,7 @@ function install_from_disk {
 	suffix=${KIWI_BUILD_RESULT//*.}
 
 	IMAGE="/tmp/build/image.$suffix"
-	ln -vf "$KIWI_BUILD_RESULT" "$IMAGE" ||
-		cp -v "$KIWI_BUILD_RESULT" "$IMAGE" ||
-		exit 1
+	cp -v "$KIWI_BUILD_RESULT" "$IMAGE"
 
 	ls -l $IMAGE
 	exec virt-install --name vm-1 \
@@ -70,7 +67,8 @@ function install_from_disk {
 		--memory 2048 \
 		--console pty,target_type=virtio \
 		--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis \
-		--network network=default
+		--network network=default \
+		--autoconsole graphical
 }
 
 case $KIWI_BUILD_RESULT in
