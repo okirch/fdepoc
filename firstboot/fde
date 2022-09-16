@@ -35,6 +35,12 @@ TPM2_SRK_ATTRS="userwithauth|restricted|decrypt|fixedtpm|fixedparent|noda|sensit
 FDE_TRACING=true
 
 ##################################################################
+# Values and locations used by KIWI
+##################################################################
+KIWI_ROOT_KEYFILE=/root/.root.keyfile
+KIWI_ROOT_PASSPHRASE="1234"
+
+##################################################################
 # Helper functions for temp file/dir creation
 ##################################################################
 function fde_make_tempdir {
@@ -44,8 +50,6 @@ function fde_make_tempdir {
     if [ -z "$FDE_TEMP_DIR" ]; then
 	FDE_TEMP_DIR=$(mktemp -d -p /dev/shm fde.XXXXXX)
     fi
-
-    echo $FDE_TEMP_DIR
 }
 
 function fde_clean_tempdir {
@@ -60,7 +64,8 @@ function fde_clean_tempdir {
 
 function fde_make_tempfile {
 
-    echo "$(fde_make_tempdir)/$1"
+    fde_make_tempdir
+    echo "$FDE_TEMP_DIR/$1"
 }
 
 ##################################################################
@@ -311,7 +316,7 @@ function luks_reencrypt {
 	cryptsetup reencrypt --key-file "$luks_keyfile" --progress-frequency 1 $luks_dev 2>&1|
 	    sed -u 's/.* \([0-9]*\)[0-9.]*%.*/\1/'
 	    echo 100
-    } | d --gauge "Reencrypting LUKS device $luks_dev" 7 40
+    } | d --gauge "Re-encrypting root file system on $luks_dev" 7 40
 }
 
 function luks_decrypt {
@@ -323,7 +328,7 @@ function luks_decrypt {
     # we need to perform reencryption during installation, after dd'ing the image to
     # disk and prior to mounting it.
     {
-	cryptsetup reencrypt -decrypt --key-file "$luks_keyfile" --progress-frequency 1 $luks_dev 2>&1|
+	cryptsetup reencrypt --decrypt --key-file "$luks_keyfile" --progress-frequency 1 $luks_dev 2>&1|
 	    sed -u 's/.* \([0-9]*\)[0-9.]*%.*/\1/'
 	    echo 100
     } | d --gauge "Decrypting LUKS device $luks_dev" 7 40
@@ -415,7 +420,8 @@ function tpm_unseal_key {
     privkey=$3
     unsealed_key_file=$4
 
-    dir=$(fde_make_tempdir)
+    fde_make_tempdir
+    dir="$FDE_TEMP_DIR"
 
     context=$dir/primary.ctx
     session=$dir/session.ctx
@@ -431,7 +437,7 @@ function tpm_unseal_key {
     tpm2_unseal -c $context -p session:$session -c $key_context -o $unsealed_key_file
     tpm2_flushcontext $session
 
-    rm -rf $dir
+    fde_clean_tempdir
 }
 
 
@@ -735,14 +741,6 @@ function fde_setup_encrypted {
     # need to keep a secret bit of data around as clear-text, copying it into
     # initrd and potentially leaking it.
     rm -f "${luks_keyfile}"
-
-    fde_infobox "Re-creating initial ramdisk"
-    if ! mkinitrd >&2; then
-    	fde_error "Failed to rebuild initrd"
-	return 1
-    fi
-
-    return 0
 }
 
 function fde_setup_unencrypted {
@@ -890,9 +888,17 @@ function fde_systemd_firstboot {
 
     fde_infobox "Full Disk Encryption with TPM2 support"
 
+    set -x
+
+    if [ ! -f "$KIWI_ROOT_KEYFILE" ]; then
+    	fde_error "Missing $KIWI_ROOT_KEYFILE. FDE setup will most likely fail."
+    fi
+
     # FIXME: rather than hard-coding the recovery password here,
     # have kiwi write it to /.root.something and read it from there
-    fde_firstboot $(__get_root_dev) /etc/.root.keyfile "1234" 2>/var/log/fde-firstboot.log
+    fde_firstboot $(__get_root_dev) "$KIWI_ROOT_KEYFILE" "$KIWI_ROOT_PASSPHRASE" 2>/var/log/fde-firstboot.log
+
+    set +x
 
     fde_clean_tempdir
 }
