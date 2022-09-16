@@ -28,6 +28,11 @@ typedef struct bufparser {
 	const unsigned char *	data;
 } bufparser_t;
 
+typedef struct bufbuilder {
+	unsigned int		pos, size;
+	unsigned char *		data;
+} bufbuilder_t;
+
 static inline void
 bufparser_init(bufparser_t *bp, const void *data, unsigned int len)
 {
@@ -184,5 +189,75 @@ bufparser_get_utf16le(bufparser_t *bp, size_t len)
 
 	return result;
 }
+
+static inline void
+bufbuilder_init(bufbuilder_t *bp, void *data, unsigned int len)
+{
+	bp->data = (unsigned char *) data;
+	bp->size = len;
+	bp->pos = 0;
+}
+
+static inline unsigned int
+bufbuilder_tailroom(const bufbuilder_t *bp)
+{
+	return bp->size - bp->pos;
+}
+
+static inline bool
+bufbuilder_put(bufbuilder_t *bp, const void *src, unsigned int count)
+{
+	if (count > bp->size - bp->pos)
+		return false;
+
+	memcpy(bp->data + bp->pos, src, count);
+	bp->pos += count;
+	return true;
+}
+
+static inline bool
+bufbuilder_put_u8(bufbuilder_t *bp, uint8_t *vp)
+{
+	return bufbuilder_put(bp, vp, sizeof(*vp));
+}
+
+static inline bool
+bufbuilder_put_u16le(bufbuilder_t *bp, uint16_t value)
+{
+	uint16_t tmp = htole16(value);
+
+	return bufbuilder_put(bp, &tmp, sizeof(tmp));
+}
+
+static inline bool
+bufbuilder_put_u32le(bufbuilder_t *bp, uint32_t value)
+{
+	uint32_t tmp = htole32(value);
+
+	return bufbuilder_put(bp, &tmp, sizeof(tmp));
+}
+
+static inline bool
+bufbuilder_put_u64le(bufbuilder_t *bp, uint64_t value)
+{
+	uint64_t tmp = htole64(value);
+
+	return bufbuilder_put(bp, &tmp, sizeof(tmp));
+}
+
+static inline bool
+bufbuilder_put_size(bufbuilder_t *bp, size_t value)
+{
+	if (sizeof(value) == 4) {
+		return bufbuilder_put_u32le(bp, value);
+	} else
+	if (sizeof(value) == 8) {
+		return bufbuilder_put_u64le(bp, value);
+	} else
+		return false;
+
+	return true;
+}
+
 
 #endif /* BUFPARSER_H */
