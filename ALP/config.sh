@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2020 SUSE LLC
+# Copyright (c) 2021 SUSE LLC
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,12 +22,14 @@
 #======================================
 # Functions...
 #--------------------------------------
-
 test -f /.kconfig && . /.kconfig
 test -f /.profile && . /.profile
 
 set -euxo pipefail
 
+#======================================
+# Greeting...
+#--------------------------------------
 echo "Configure image: [$kiwi_iname]-[$kiwi_profiles]..."
 
 #======================================
@@ -37,6 +39,9 @@ echo "Configure image: [$kiwi_iname]-[$kiwi_profiles]..."
 #--------------------------------------
 modprobe xts || true
 
+#======================================
+# add missing fonts
+#--------------------------------------
 # Systemd controls the console font now
 echo FONT="eurlatgr.psfu" >> /etc/vconsole.conf
 
@@ -59,51 +64,35 @@ baseSetRunlevel multi-user.target
 suseImportBuildKey
 
 #======================================
-# Set hostname by DHCP
+# Enable sshd
 #--------------------------------------
-baseUpdateSysConfig /etc/sysconfig/network/dhcp DHCLIENT_SET_HOSTNAME yes
+systemctl enable sshd.service
 
-# Add repos from /etc/YaST2/control.xml
-if [ -x /usr/sbin/add-yast-repos ]; then
-	add-yast-repos
-	zypper --non-interactive rm -u live-add-yast-repos
-fi
+if [ -e /etc/cloud/cloud.cfg ]; then
+        # not useful for cloud
+        systemctl mask systemd-firstboot.service
 
-# Adjust zypp conf
-sed -i 's/^multiversion =.*/multiversion =/g' /etc/zypp/zypp.conf
+        systemctl enable cloud-init-local
+        systemctl enable cloud-init
+        systemctl enable cloud-config
+        systemctl enable cloud-final
+else
+        # Enable jeos-firstboot
+        mkdir -p /var/lib/YaST2
+        touch /var/lib/YaST2/reconfig_system
 
-#=====================================
-# Configure snapper
-#-------------------------------------
-if [ "${kiwi_btrfs_root_is_snapshot-false}" = 'true' ]; then
-        echo "creating initial snapper config ..."
-        cp /etc/snapper/config-templates/default /etc/snapper/configs/root \
-		|| cp /usr/share/snapper/config-templates/default /etc/snapper/configs/root
-        baseUpdateSysConfig /etc/sysconfig/snapper SNAPPER_CONFIGS root
-
-	# Adjust parameters
-	sed -i'' 's/^TIMELINE_CREATE=.*$/TIMELINE_CREATE="no"/g' /etc/snapper/configs/root
-	sed -i'' 's/^NUMBER_LIMIT=.*$/NUMBER_LIMIT="2-10"/g' /etc/snapper/configs/root
-	sed -i'' 's/^NUMBER_LIMIT_IMPORTANT=.*$/NUMBER_LIMIT_IMPORTANT="4-10"/g' /etc/snapper/configs/root
+        systemctl mask systemd-firstboot.service
+        systemctl enable jeos-firstboot.service
 fi
 
 #=====================================
-# Enable chrony if installed
+# Configure /etc overlay if needed
 #-------------------------------------
-if [ -f /etc/chrony.conf ]; then
-	systemctl enable chronyd
-fi
 
-# Enable jeos-firstboot if installed, disabled by combustion/ignition
-if rpm -q --whatprovides jeos-firstboot >/dev/null; then
-	mkdir -p /var/lib/YaST2
-	touch /var/lib/YaST2/reconfig_system
-	systemctl enable jeos-firstboot.service
-fi
-
-# The %post script can't edit /etc/fstab sys due to https://github.com/OSInside/kiwi/issues/945
-# so use the kiwi custom hack
-cat >/etc/fstab.script <<"EOF"
+if [ -x /usr/sbin/setup-fstab-for-overlayfs ]; then 
+	# The %post script can't edit /etc/fstab sys due to https://github.com/OSInside/kiwi/issues/945
+	# so use the kiwi custom hack
+	cat >/etc/fstab.script <<"EOF"
 #!/bin/sh
 set -eux
 
@@ -114,13 +103,12 @@ if [ "$(findmnt -snT / -o SOURCE)" != "$(findmnt -snT /var -o SOURCE)" ]; then
 	gawk -i inplace '$2 == "/var" { $4 = $4",x-growpart.grow,x-systemd.growfs" } { print $0 }' /etc/fstab
 fi
 EOF
-
-# ONIE additions
-if [[ "$kiwi_profiles" == *"onie"* ]]; then
-	systemctl enable onie-adjust-boottype
-	# For testing:
-	echo root:linux | chpasswd
-	systemctl enable salt-minion
+	# ONIE additions
+	if [[ "$kiwi_profiles" == *"onie"* ]]; then
+		systemctl enable onie-adjust-boottype
+		# For testing:
+		echo root:linux | chpasswd
+		systemctl enable salt-minion
 
 	cat >>/etc/fstab.script <<"EOF"
 # Grow the root filesystem. / is mounted read-only, so use /var instead.
@@ -128,43 +116,59 @@ gawk -i inplace '$2 == "/var" { $4 = $4",x-growpart.grow,x-systemd.growfs" } { p
 # Remove the entry for the EFI partition
 gawk -i inplace '$2 != "/boot/efi"' /etc/fstab
 EOF
-fi
+	fi
 
-chmod a+x /etc/fstab.script
+	chmod a+x /etc/fstab.script
 
-# To make x-systemd.growfs work from inside the initrd
-cat >/etc/dracut.conf.d/50-microos-growfs.conf <<"EOF"
+	# To make x-systemd.growfs work from inside the initrd
+	cat >/etc/dracut.conf.d/50-microos-growfs.conf <<"EOF"
 install_items+=" /usr/lib/systemd/systemd-growfs "
+force_drivers+=" xts dm-crypt "
 EOF
 
-# Use the btrfs storage driver. This is usually detected in %post, but with kiwi
-# that happens outside of the final FS.
-if [ -e /etc/containers/storage.conf ]; then
-	sed -i 's/driver = "overlay"/driver = "btrfs"/g' /etc/containers/storage.conf
+	# Use the btrfs storage driver. This is usually detected in %post, but with kiwi
+	# that happens outside of the final FS.
+	if [ -e /etc/containers/storage.conf ]; then
+		sed -i 's/driver = "overlay"/driver = "btrfs"/g' /etc/containers/storage.conf
+	fi
+
+	# Adjust zypp conf (no needed on transactional system)
+	sed -i 's/^multiversion =.*/multiversion =/g' /etc/zypp/zypp.conf
+fi
+
+# Enable firewalld if installed
+if [ -x /usr/sbin/firewalld ]; then
+        systemctl enable firewalld.service
+fi
+
+# Enable NetworkManager if installed
+if rpm -q --whatprovides NetworkManager >/dev/null; then
+        systemctl enable NetworkManager.service
 fi
 
 #======================================
-# Disable recommends on virtual images (keep hardware supplements, see bsc#1089498)
+# Add repos from control.xml
 #--------------------------------------
-sed -i 's/.*solver.onlyRequires.*/solver.onlyRequires = true/g' /etc/zypp/zypp.conf
-
-#======================================
-# Disable installing documentation
-#--------------------------------------
-sed -i 's/.*rpm.install.excludedocs.*/rpm.install.excludedocs = yes/g' /etc/zypp/zypp.conf
-
+if [ -x /usr/sbin/add-yast-repos ]; then
+	add-yast-repos
+	zypper --non-interactive rm -u live-add-yast-repos
+fi
 #======================================
 # Add default kernel boot options
 #--------------------------------------
 serialconsole='console=ttyS0,115200'
 [[ "$kiwi_profiles" == *"RaspberryPi2" ]] && serialconsole='console=ttyAMA0,115200'
 [[ "$kiwi_profiles" == *"Rock64" ]] && serialconsole='console=ttyS2,1500000'
+[[ "$kiwi_profiles" == *"MS-HyperV"* ]] && serialconsole="rootdelay=300 $serialconsole earlyprintk=ttyS0,115200"
+[[ "${kiwi_btrfs_root_is_readonly_snapshot-false}" != 'true' ]] && mount_root_rw='rw'
 
-grub_cmdline=('quiet' 'systemd.show_status=yes' "${serialconsole}" 'console=tty0')
+grub_cmdline=("${mount_root_rw}" 'quiet' 'systemd.show_status=yes' "${serialconsole}" 'console=tty0')
 rpm -q wicked && grub_cmdline+=('net.ifnames=0')
 
-ignition_platform='metal'
-case "${kiwi_profiles}" in
+# setup ignition if installed
+if rpm -q ignition >/dev/null; then
+  ignition_platform='metal'
+  case "${kiwi_profiles}" in
 	*kvm*) ignition_platform='qemu' ;;
 	*DigitalOcean*) ignition_platform='digitalocean' ;;
 	*VMware*) ignition_platform='vmware' ;;
@@ -176,10 +180,11 @@ case "${kiwi_profiles}" in
 	*) echo "Unhandled profile?"
 	   exit 1
 	   ;;
-esac
+  esac
 
-# One '\' for sed, one '\' for grub2-mkconfig
-grub_cmdline+=('\\$ignition_firstboot' "ignition.platform.id=${ignition_platform}")
+  # One '\' for sed, one '\' for grub2-mkconfig
+  grub_cmdline+=('\\$ignition_firstboot' "ignition.platform.id=${ignition_platform}")
+fi
 
 sed -i "s#^GRUB_CMDLINE_LINUX_DEFAULT=.*\$#GRUB_CMDLINE_LINUX_DEFAULT=\"${grub_cmdline[*]}\"#" /etc/default/grub
 
@@ -192,6 +197,7 @@ if [[ -e /etc/selinux/config ]]; then
 	    sed -i -e 's|\(^GRUB_CMDLINE_LINUX_DEFAULT=.*\)"|\1 security=selinux selinux=1"|g' "/etc/default/grub"
 
 	# Adjust selinux config
+# FIXME temporary set ALP on permissive mode
 #	sed -i -e 's|^SELINUX=.*|SELINUX=enforcing|g' \
 #	    -e 's|^SELINUXTYPE=.*|SELINUXTYPE=targeted|g' \
 #	    "/etc/selinux/config"
@@ -203,92 +209,36 @@ if [[ -e /etc/selinux/config ]]; then
 	test -f /.autorelabel && mv /.autorelabel /etc/selinux/.autorelabel
 fi
 
-#======================================
-# Wicked specific configuration (in addition to the net.ifnames=0 above)
-#--------------------------------------
-if rpm -q wicked; then
-	# Enable DHCP on eth0
-	cat >/etc/sysconfig/network/ifcfg-eth0 <<EOF
-BOOTPROTO='dhcp'
-STARTMODE='auto'
-EOF
+#=====================================
+# Configure snapper
+#-------------------------------------
+if [ "${kiwi_btrfs_root_is_snapshot-false}" = 'true' ]; then
+        echo "creating initial snapper config ..."
+        # we can't call snapper here as the .snapshots subvolume
+        # already exists and snapper create-config doesn't like
+        # that.
+        cp /etc/snapper/config-templates/default /etc/snapper/configs/root \
+                || cp /usr/share/snapper/config-templates/default /etc/snapper/configs/root
+        # Change configuration to match SLES12-SP1 values
+        sed -i -e '/^TIMELINE_CREATE=/s/yes/no/' /etc/snapper/configs/root
+        sed -i -e '/^NUMBER_LIMIT=/s/50/10/'     /etc/snapper/configs/root
 
-	# Workaround: Force network-legacy, network-wicked is not usable (boo#1182227)
-	if rpm -q ignition-dracut-grub2; then
-		# Modify module-setup.sh, but undo the modification on the first call
-		mv /usr/lib/dracut/modules.d/40network/module-setup.sh{,.orig}
-		sed 's#echo "kernel-network-modules $network_handler"$#echo kernel-network-modules network-legacy; mv /usr/lib/dracut/modules.d/40network/module-setup.sh{.orig,}#' \
-			/usr/lib/dracut/modules.d/40network/module-setup.sh.orig > /usr/lib/dracut/modules.d/40network/module-setup.sh
-	fi
-else
-	systemctl enable NetworkManager
+        baseUpdateSysConfig /etc/sysconfig/snapper SNAPPER_CONFIGS root
+fi
+
+#=====================================
+# Enable chrony if installed
+#-------------------------------------
+if [ -f /etc/chrony.conf ]; then
+	systemctl enable chronyd
 fi
 
 #======================================
-# Configure SelfInstall specifics
+# Disable recommends on virtual images (keep hardware supplements, see bsc#1089498)
 #--------------------------------------
-if [[ "$kiwi_profiles" == *"SelfInstall"* ]]; then
-	cat > /etc/systemd/system/selfinstallreboot.service <<-EOF
-	[Unit]
-	Description=SelfInstall Image Reboot after Firstboot (to ensure ignition and such runs)
-	After=systemd-machine-id-commit.service
-	Before=jeos-firstboot.service
-	
-	[Service]
-	Type=oneshot
-	ExecStart=rm /etc/systemd/system/selfinstallreboot.service
-	ExecStart=rm /etc/systemd/system/default.target.wants/selfinstallreboot.service
-	ExecStart=systemctl --no-block reboot
-
-	[Install]
-	WantedBy=default.target
-	EOF
-	ln -s /etc/systemd/system/selfinstallreboot.service /etc/systemd/system/default.target.wants/selfinstallreboot.service
-fi
+sed -i 's/.*solver.onlyRequires.*/solver.onlyRequires = true/g' /etc/zypp/zypp.conf
 
 #======================================
-# Configure Pine64 specifics
+# Disable installing documentation
 #--------------------------------------
-if [[ "$kiwi_profiles" == *"Pine64"* ]]; then
-	echo 'add_drivers+=" fixed sunxi-mmc axp20x-regulator axp20x-rsb "' > /etc/dracut.conf.d/sunxi_modules.conf
-fi
-
-#======================================
-# Configure Raspberry Pi specifics, unless done by raspberrypi-firmware already (on TW)
-#--------------------------------------
-if [[ "$kiwi_profiles" == *"RaspberryPi"* ]] && ! [[ -e /usr/lib/dracut/dracut.conf.d/raspberrypi_modules.conf ]]; then
-	# Add necessary kernel modules to initrd (will disappear with bsc#1084272)
-	echo 'add_drivers+=" bcm2835_dma dwc2 "' > /etc/dracut.conf.d/raspberrypi_modules.conf
-
-	# Add necessary kernel modules to initrd (will disappear with boo#1162669)
-	echo 'add_drivers+=" pcie-brcmstb "' >> /etc/dracut.conf.d/raspberrypi_modules.conf
-
-	# Work around network issues
-  	cat > /etc/modprobe.d/50-rpi3.conf <<-EOF
-		# Prevent too many page allocations (bsc#1012449)
-		options smsc95xx turbo_mode=N
-	EOF
-
-	cat > /usr/lib/sysctl.d/50-rpi3.conf <<-EOF
-		# Avoid running out of DMA pages for smsc95xx (bsc#1012449)
-		vm.min_free_kbytes = 2048
-	EOF
-fi
-
-#======================================
-# Configure Vagrant specifics
-#--------------------------------------
-if [[ "$kiwi_profiles" == *"Vagrant"* ]]; then
-        # create vagrant user
-        useradd vagrant
-        # allow password-less sudo
-        echo "vagrant ALL=(ALL)NOPASSWD:ALL" > /etc/sudoers.d/vagrant
-        # add vagrant's insecure key
-        mkdir -p /home/vagrant/.ssh
-        chmod 0700 /home/vagrant/.ssh
-        cat > /home/vagrant/.ssh/authorized_keys << EOF
-ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEA6NF8iallvQVp22WDkTkyrtvp9eWW6A8YVr+kz4TjGYe7gHzIw+niNltGEFHzD8+v1I2YJ6oXevct1YeS0o9HZyN1Q9qgCgzUFtdOKLv6IedplqoPkcmF0aYet2PkEDo3MlTBckFXPITAMzF8dJSIFo9D8HfdOV0IAdx4O7PtixWKn5y2hMNG0zQPyUecp4pzC6kivAIhyfHilFR61RGL+GPXQ2MWZWFYbAGjyiYJnAmCP3NOTd0jMZEnDkbUvxhMmBYSdETk1rRgm+R4LOzFUGaHqHDLKLX+FIPKcF96hrucXzcWyLbIbEgE98OHlnVYCzRdK8jlqm8tehUc9c9WhQ== vagrant insecure public key
-EOF
-        chmod 0600 /home/vagrant/.ssh/authorized_keys
-        chown -R vagrant /home/vagrant
-fi
+sed -i 's/.*rpm.install.excludedocs.*/rpm.install.excludedocs = yes/g' /etc/zypp/zypp.conf

@@ -3,6 +3,7 @@
 IMGDIR=./ALP
 IMGFLAVOR=SelfInstall_NonTransactional
 IMGFLAVOR=kvm-and-xen_NonTransactional
+IMGFLAVOR=kvm
 BUILD_BASE=/tmp/myimage
 BUILD_ROOT="$BUILD_BASE/root"
 
@@ -44,14 +45,14 @@ prepare)
 
 create)
 	FDE_SCRIPT="$BUILD_BASE/root/usr/share/jeos-firstboot/modules/fde"
-	if ! cmp -s firstboot/fde $FDE_SCRIPT; then
-		echo "***********"
-		echo "FDE firstboot script changed, overwriting"
-		cp -v firstboot/fde $FDE_SCRIPT
-		echo "***********"
+	if true; then
+		if ! cmp -s firstboot/fde $FDE_SCRIPT; then
+			echo "***********"
+			echo "FDE firstboot script changed, overwriting"
+			cp -v firstboot/fde $FDE_SCRIPT
+			echo "***********"
+		fi
 	fi
-
-	cp -av dracut/30crypt-root-setup $BUILD_BASE/root/usr/lib/dracut/modules.d/ || exit 1
 
 	kiwi-ng --profile $IMGFLAVOR \
 		$DEBUG $LOGOPTION \
