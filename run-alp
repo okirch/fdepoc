@@ -11,11 +11,12 @@ ALP_IMG_URL=https://download.opensuse.org/repositories/home:/okir:/FDE/images/AL
 # KVM needs a special set of SB variables:
 UEFI_ALP_VARS_FILE="/usr/share/qemu/ovmf-x86_64-smm-alp-vars.bin"
 
-DEFAULT_IMG_CACHE="$HOME/Downloads"
+DEFAULT_IMG_CACHE="/var/tmp/alp-demo"
 DEFAULT_VM_NAME="alp-demo"
 
 # This is not true, but allows this demo to run on 15.3 upwards
 ALP_OS_VARIANT=opensuse15.3
+
 
 function usage {
 
@@ -29,6 +30,10 @@ run-alp [-N vm-name] [-C cache-dir] [img-path]"
         specify a directory to hold ALP images [default $DEFAULT_IMG_CACHE]
   -f    if a VM of the given name was created previously, remove it
         without asking for confirmation.
+  -p    by default, the VM created by this script will be transient,
+        i.e. it will be deleted when you exit virt-viewer. If you want
+	to create a persisent VM instead, use the -p flag. You will
+	be able to start, stop and delete the VM using virt-manager.
 
 img-path can be used to specify the name of an image to run.
 By default, the script will try to run the current ALP-VM image from the
@@ -42,6 +47,7 @@ EOF
 opt_vm_name="$DEFAULT_VM_NAME"
 opt_cache_dir="$DEFAULT_IMG_CACHE"
 opt_force=false
+opt_persistent=false
 
 set -- $(getopt C:N:fh "$@")
 while [ $# -gt 0 ]; do
@@ -50,6 +56,7 @@ while [ $# -gt 0 ]; do
 	-C)	opt_cache_dir=$1; shift;;
 	-N)	opt_vm_name=$1; shift;;
 	-f)	opt_force=true;;
+	-p)	opt_persistent=true;;
 	-h)	usage 0;;
 	--)	break;;
 	*)	echo "Unsupported option $opt" >&2
@@ -68,29 +75,19 @@ EOF
 	: ;;
 esac
 
-ALP_IMG_LOCAL="$opt_cache_dir/$(basename $ALP_IMG_URL)"
+mkdir -p "$opt_cache_dir"
 
 case $# in
-0)	if [ ! -s $ALP_IMG_LOCAL ]; then
-		echo "Downloading ALP image from $ALP_IMG_URL"
-		echo "to $ALP_IMG_LOCAL"
-		wget -N -O $ALP_IMG_LOCAL $ALP_IMG_URL
-	else
-		echo "Using cached ALP image $ALP_IMG_LOCAL"
-	fi;;
+0)	
+	echo "Downloading ALP image from $ALP_IMG_URL"
+	echo "to $ALP_IMG_LOCAL"
+	wget -N -P "$opt_cache_dir" "$ALP_IMG_URL" || exit 1
+	ALP_IMG_LOCAL="$opt_cache_dir/$(basename $ALP_IMG_URL)"
+	: ;;
 1)	ALP_IMG_LOCAL=$1; shift;;
 *)	echo "Too many arguments" >&2
 	usage 1;;
 esac
-
-# For as long as the packages in SUSE:ALP aren't signed with a recognized key,
-# we need this:
-UEFI_CODE_FILE="/usr/share/qemu/ovmf-x86_64-smm-opensuse-code.bin"
-UEFI_VARS_FILE="/usr/share/qemu/ovmf-x86_64-smm-opensuse-vars.bin"
-if [ -s "$UEFI_ALP_VARS_FILE" ]; then
-	echo "Using UEFI variables image $UEFI_ALP_VARS_FILE" >&2
-	UEFI_VARS_FILE="$UEFI_ALP_VARS_FILE"
-fi
 
 
 function user_confirm {
@@ -106,6 +103,23 @@ function user_confirm {
 			return 1;;
 		esac
 	done
+}
+
+function check_system {
+
+	okay=0
+
+	# Check whether libvirtd is running
+	eval $(systemctl show libvirtd -p ActiveState,SubState 2>/dev/null)
+	if [ "$ActiveState" != active -o "$SubState" != "running" ]; then
+		echo "The libvirtd service does not seem to be running; please activate it:" >&2
+		echo "  systemctl state libvirtd" >&2
+		okay=1
+	fi
+
+	# Should we check anything else?
+
+	return $okay
 }
 
 function cleanup_domain {
@@ -163,6 +177,20 @@ function install_from_disk {
 		virsh net-start default;;
 	esac
 
+	# For as long as the packages in SUSE:ALP aren't signed with a recognized key,
+	# we need this:
+	UEFI_CODE_FILE="/usr/share/qemu/ovmf-x86_64-smm-opensuse-code.bin"
+	UEFI_VARS_FILE="/usr/share/qemu/ovmf-x86_64-smm-opensuse-vars.bin"
+	if [ -s "$UEFI_ALP_VARS_FILE" ]; then
+		echo "Using UEFI variables image $UEFI_ALP_VARS_FILE" >&2
+		UEFI_VARS_FILE="$UEFI_ALP_VARS_FILE"
+	fi
+
+	extra_options=""
+	if ! $opt_persistent; then
+		extra_options+=" --transient"
+	fi
+
 	set -x
 	exec virt-install --name $vm_name \
 		--os-variant="$ALP_OS_VARIANT" \
@@ -173,9 +201,11 @@ function install_from_disk {
 		--console pty,target_type=virtio \
 		--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis \
 		--network network=default \
+		$extra_options \
 		--autoconsole graphical
 }
 
+check_system || exit 1
 cleanup_domain $opt_vm_name
 install_from_disk $opt_vm_name $ALP_IMG_LOCAL
 
