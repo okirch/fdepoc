@@ -21,8 +21,7 @@
 # Tunables for full disk encryption
 
 # List of PCRs to seal the LUKS key to
-# FIXME: should probably include PCR7
-FDE_SEAL_PCR_LIST=0,2,4,9
+FDE_SEAL_PCR_LIST=0,2,4,7,9
 FDE_SEAL_PCR_BANK=sha256
 
 # It appears that 128 is the maximum size of what TPM2_Load is willing to handle
