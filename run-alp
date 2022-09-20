@@ -5,7 +5,8 @@
 # Written by okir@suse.com
 #
 
-ALP_IMG_URL=https://download.opensuse.org/repositories/home:/okir:/FDE/images/ALP-VM.x86_64-kvm.qcow2
+OKIR_IMG_URL=https://download.opensuse.org/repositories/home:/okir:/FDE/images/
+ALP_IMG_URL=https://download.opensuse.org/repositories/SUSE:/ALP/images/
 
 # As long as ALP uses its own buildcert to sign Secure Boot related code,
 # KVM needs a special set of SB variables:
@@ -24,16 +25,20 @@ function usage {
 
 	cat <<EOF
 run-alp [-N vm-name] [-C cache-dir] [img-path]"
-  -N vm-name
+  -N vm-name, --name vm-name
         name of the VM to create [default $DEFAULT_VM_NAME]
-  -C cache-dir
+  -C path, --cachedir path
         specify a directory to hold ALP images [default $DEFAULT_IMG_CACHE]
-  -f    if a VM of the given name was created previously, remove it
+  --no-fde
+  	Run image without full disk encryption
+  -f, --force
+        if a VM of the given name was created previously, remove it
         without asking for confirmation.
-  -p    by default, the VM created by this script will be transient,
+  -p, --persistent
+        by default, the VM created by this script will be transient,
         i.e. it will be deleted when you exit virt-viewer. If you want
-	to create a persisent VM instead, use the -p flag. You will
-	be able to start, stop and delete the VM using virt-manager.
+        to create a persisent VM instead, use the -p flag. You will
+        be able to start, stop and delete the VM using virt-manager.
 
 img-path can be used to specify the name of an image to run.
 By default, the script will try to run the current ALP-VM image from the
@@ -45,24 +50,43 @@ EOF
 }
 
 opt_vm_name="$DEFAULT_VM_NAME"
-opt_cache_dir="$DEFAULT_IMG_CACHE"
+opt_cache_dir=
 opt_force=false
 opt_persistent=false
+opt_sb_auth=opensuse
+opt_img_flavor=kvm_encrypted
 
-set -- $(getopt C:N:fh "$@")
+eval set -- $(getopt -l no-fde,sb-auth:,cachedir:,name:,force,persistent,help,okir A:C:N:fh "$@")
 while [ $# -gt 0 ]; do
 	opt=$1; shift
 	case $opt in
-	-C)	opt_cache_dir=$1; shift;;
-	-N)	opt_vm_name=$1; shift;;
-	-f)	opt_force=true;;
-	-p)	opt_persistent=true;;
-	-h)	usage 0;;
+	--no-fde)
+		opt_img_flavor=kvm;;
+	-A|--sb-auth)
+		opt_sb_auth=$1; shift;;
+	-C|--cachedir)
+		opt_cache_dir=$1; shift;;
+	-N|--name)
+		opt_vm_name=$1; shift;;
+	-f|--force)
+		opt_force=true;;
+	-p|--persistent)
+		opt_persistent=true;;
+	-h|--help)
+		usage 0;;
+	--okir)
+		ALP_IMG_URL=$OKIR_IMG_URL
+		DEFAULT_IMG_CACHE="$DEFAULT_IMG_CACHE/okir"
+		opt_sb_auth=alp;;
 	--)	break;;
 	*)	echo "Unsupported option $opt" >&2
 		usage 1;;
 	esac
 done
+
+if [ -z "$opt_cache_dir" ]; then
+	opt_cache_dir="$DEFAULT_IMG_CACHE"
+fi
 
 case $(stat -f "$opt_cache_dir" -c %T) in
 nfs|nfs4|cifs)
@@ -75,20 +99,36 @@ EOF
 	: ;;
 esac
 
-mkdir -p "$opt_cache_dir"
+function identify_image {
 
-case $# in
-0)	
-	echo "Downloading ALP image from $ALP_IMG_URL"
-	echo "to $ALP_IMG_LOCAL"
-	wget -N -P "$opt_cache_dir" "$ALP_IMG_URL" || exit 1
-	ALP_IMG_LOCAL="$opt_cache_dir/$(basename $ALP_IMG_URL)"
-	: ;;
-1)	ALP_IMG_LOCAL=$1; shift;;
-*)	echo "Too many arguments" >&2
-	usage 1;;
-esac
+	 set -x
+	 wget -nv "$ALP_IMG_URL" -O - |
+	 	tr '<>' '\012\012' | sed '/^a href="\(.*\)"/!d;s//\1/' |
+		grep "ALP-VM.x86_64.*-${opt_img_flavor}-.*"'\.qcow2$' |
+		sort -u
+}
 
+function download_image {
+
+	declare -g ALP_IMG_LOCAL
+
+	echo "Downloading ALP $opt_img_flavor image from $ALP_IMG_URL"
+	echo "to $opt_cache_dir"
+
+	img_name=$(identify_image)
+	case $(echo "$img_name" | wc -w) in
+	0)	echo "Unable to identify image" >&2
+		exit 1;;
+	1)	: ;;
+	*)	echo "Found more than one image at $ALP_IMG_URL" >&2
+		exit 1;;
+	esac
+
+	echo "Found image $img_name"
+	wget -nv -N -P "$opt_cache_dir" "$ALP_IMG_URL/$img_name" || exit 1
+
+	ALP_IMG_LOCAL="$opt_cache_dir/$img_name"
+}
 
 function user_confirm {
 
@@ -113,7 +153,7 @@ function check_system {
 	eval $(systemctl show libvirtd -p ActiveState,SubState 2>/dev/null)
 	if [ "$ActiveState" != active -o "$SubState" != "running" ]; then
 		echo "The libvirtd service does not seem to be running; please activate it:" >&2
-		echo "  systemctl state libvirtd" >&2
+		echo "  systemctl start libvirtd" >&2
 		okay=1
 	fi
 
@@ -181,7 +221,7 @@ function install_from_disk {
 	# we need this:
 	UEFI_CODE_FILE="/usr/share/qemu/ovmf-x86_64-smm-opensuse-code.bin"
 	UEFI_VARS_FILE="/usr/share/qemu/ovmf-x86_64-smm-opensuse-vars.bin"
-	if [ -s "$UEFI_ALP_VARS_FILE" ]; then
+	if [ "$opt_sb_auth" = "alp" ]; then
 		echo "Using UEFI variables image $UEFI_ALP_VARS_FILE" >&2
 		UEFI_VARS_FILE="$UEFI_ALP_VARS_FILE"
 	fi
@@ -204,6 +244,18 @@ function install_from_disk {
 		$extra_options \
 		--autoconsole graphical
 }
+
+mkdir -p "$opt_cache_dir"
+
+case $# in
+0)	
+	download_image;;
+1)	ALP_IMG_LOCAL=$1; shift;;
+*)	echo "Too many arguments" >&2
+	usage 1;;
+esac
+
+
 
 check_system || exit 1
 cleanup_domain $opt_vm_name
