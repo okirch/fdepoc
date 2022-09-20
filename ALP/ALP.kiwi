@@ -28,6 +28,7 @@
 	    btrfs_root_is_readonly_snapshot="true"
             bundle_format="%N-VM.%A-%M.%m.%p-%I"
 	    luks_version="luks2"
+	    luks_randomize="false"
 	    luks="1234"
         >
             <bootloader name="grub2" console="gfxterm" use_disk_password="true" />
