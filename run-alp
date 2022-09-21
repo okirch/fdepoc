@@ -17,6 +17,7 @@ DEFAULT_VM_NAME="alp-demo"
 
 # This is not true, but allows this demo to run on 15.3 upwards
 ALP_OS_VARIANT=opensuse15.3
+ALP_OS_VARIANT=opensusetumbleweed
 
 
 function usage {
@@ -101,7 +102,6 @@ esac
 
 function identify_image {
 
-	 set -x
 	 wget -nv "$ALP_IMG_URL" -O - |
 	 	tr '<>' '\012\012' | sed '/^a href="\(.*\)"/!d;s//\1/' |
 		grep "ALP-VM.x86_64.*-${opt_img_flavor}-.*"'\.qcow2$' |
@@ -234,7 +234,9 @@ function install_from_disk {
 	set -x
 	exec virt-install --name $vm_name \
 		--os-variant="$ALP_OS_VARIANT" \
-		--boot "hd,uefi,loader=$UEFI_CODE_FILE,nvram_template=$UEFI_VARS_FILE" \
+		--boot "hd" \
+		--features smm=on \
+		--boot "loader=$UEFI_CODE_FILE,loader_ro=yes,loader_type=pflash,loader_secure=yes,nvram_template=$UEFI_VARS_FILE" \
 		--import \
 		--disk $image,bus=sata \
 		--memory 2048 \
