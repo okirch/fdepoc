@@ -18,7 +18,10 @@ Once you've obtained and installed the scripts, run it as root:
 
 This will churn for a moment, downloading and copying the image around.
 Eventually a virt-viewer window should pop up and show you the boot
-screen. Booting should commence automatically.
+screen. The shim loader will ask you whether you want to trust the
+openSUSE Secure Boot certificate, you should say "Yes" here.
+
+Booting should then proceed without further manual intervention.
 
 At some point, JeOS-Firstboot should start, asking you questions
 about things like your keyboard layout, time zone, etc, and request
@@ -41,7 +44,9 @@ console login.
 HINT for users not familiar with virt-viewer: if you click into
 the virt-viewer window, it will "capture" your mouse. The mouse
 pointer will essentially disappear from your screen. To make
-virt-viewer release it again, press Ctrl + Alt at the same time.
+virt-viewer release it again, there is a magic key combination you
+need to press. virt-viewer will usually show this in the title
+bar when the mouse has been captured.
 
 
 Verifying FDE features
@@ -64,8 +69,10 @@ to try
    unlock the disk using the TPM.
 
 
-Stuff that's not working yet
-============================
+Miscellaneous
+=============
 
-We need to offer our customers a way to run the system without
-encryption. That does not work, right now.
+If the image does not boot under virt-manager on your system,
+the run-alp script supports a fallback that runs the demo
+under qemu directly. Simply invoke the run-alp script with
+the --qemu option.

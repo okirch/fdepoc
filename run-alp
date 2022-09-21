@@ -10,8 +10,8 @@ ALP_IMG_URL=https://download.opensuse.org/repositories/SUSE:/ALP/images/
 
 # As long as ALP uses its own buildcert to sign Secure Boot related code,
 # KVM needs a special set of SB variables:
-UEFI_ALP_VARS_FILE="/usr/share/qemu/ovmf-x86_64-smm-devel-vars.bin"
-UEFI_OKIR_VARS_FILE="/usr/share/qemu/ovmf-x86_64-smm-alp-vars.bin"
+UEFI_ALP_VARS_FILE="/usr/share/qemu/ovmf-x86_64-smm-alp-vars.bin"
+UEFI_OKIR_VARS_FILE="/usr/share/qemu/ovmf-x86_64-smm-okir-vars.bin"
 
 DEFAULT_IMG_CACHE="/var/tmp/alp-demo"
 DEFAULT_VM_NAME="alp-demo"
@@ -33,6 +33,8 @@ run-alp [-N vm-name] [-C cache-dir] [img-path]"
         specify a directory to hold ALP images [default $DEFAULT_IMG_CACHE]
   --no-fde
   	Run image without full disk encryption
+  --qemu
+  	Run the demo image using qemu directly, rather than virt-install
   -f, --force
         if a VM of the given name was created previously, remove it
         without asking for confirmation.
@@ -57,8 +59,9 @@ opt_force=false
 opt_persistent=false
 opt_sb_auth=alp
 opt_img_flavor=kvm_encrypted
+opt_run=libvirt
 
-eval set -- $(getopt -l no-fde,sb-auth:,cachedir:,name:,force,persistent,help,okir A:C:N:fh "$@")
+eval set -- $(getopt -l no-fde,sb-auth:,cachedir:,name:,force,persistent,help,okir,qemu A:C:N:fh "$@")
 while [ $# -gt 0 ]; do
 	opt=$1; shift
 	case $opt in
@@ -80,6 +83,8 @@ while [ $# -gt 0 ]; do
 		ALP_IMG_URL=$OKIR_IMG_URL
 		DEFAULT_IMG_CACHE="$DEFAULT_IMG_CACHE/okir"
 		opt_sb_auth=okir;;
+	--qemu)
+		opt_run=qemu;;
 	--)	break;;
 	*)	echo "Unsupported option $opt" >&2
 		usage 1;;
@@ -194,14 +199,16 @@ function cleanup_domain {
 	return 0
 }
 
-function install_from_disk {
+function copy_image {
+
+	declare -g image
 
 	local vm_name=$1
 	local golden_image=$2
 
 	suffix=${golden_image//*.}
 
-	local image="$opt_cache_dir/$vm_name.$suffix"
+	image="$opt_cache_dir/$vm_name.$suffix"
 	if [ -f "$image" ]; then
 		if ! $opt_force; then
 			user_confirm "A VM image named $image already exists. Remove?" || exit 1
@@ -210,13 +217,11 @@ function install_from_disk {
 	fi
 
 	cp -v "$golden_image" "$image" || exit 1
+}
 
-	case "$(virsh net-info default | grep -i active)" in
-	*yes*) : ;;
-	*)
-		echo "Starting libvirt network \"default\""
-		virsh net-start default;;
-	esac
+function select_firmware {
+
+	declare -g UEFI_CODE_FILE UEFI_VARS_FILE
 
 	# For as long as the packages in SUSE:ALP aren't signed with a recognized key,
 	# we need this:
@@ -231,6 +236,22 @@ function install_from_disk {
 		: ;;
 	esac
 	echo "Using UEFI variables image $UEFI_VARS_FILE" >&2
+}
+
+function run_libvirt {
+
+	local vm_name=$1
+	local golden_image=$2
+
+	copy_image "$@"
+	select_firmware
+
+	case "$(virsh net-info default | grep -i active)" in
+	*yes*) : ;;
+	*)
+		echo "Starting libvirt network \"default\""
+		virsh net-start default;;
+	esac
 
 	extra_options=""
 	if ! $opt_persistent; then
@@ -253,6 +274,59 @@ function install_from_disk {
 		--autoconsole graphical
 }
 
+# should behave mostly like run_libvirt, but with fewer frills (and more likely to succeed)
+function run_qemu {
+
+	local vm_name=$1
+	local golden_image=$2
+
+	copy_image "$@"
+	select_firmware
+
+	local nvram_image
+
+	nvram_image="$opt_cache_dir/${vm_name}-VARS.bin"
+	cp -v $UEFI_VARS_FILE $nvram_image
+
+	uefi_code_options="-drive if=pflash,format=raw,readonly=on,file=$UEFI_CODE_FILE"
+	uefi_vars_options="-drive if=pflash,format=raw,file=$nvram_image"
+
+	TPMDIR=/var/tmp/alp-demo/tpm
+	TPMSOCK=${TPMDIR}/swtpm-sock.$$
+
+	# Start swtpm
+	mkdir -p $TPMDIR
+	swtpm socket --tpm2 --tpmstate dir=$TPMDIR \
+		--ctrl type=unixio,path=$TPMSOCK \
+		--log file=swtpm.log,level=20 \
+		-t -d
+
+	local tpm_options
+	tpm_options="-chardev socket,id=chrtpm,path=$TPMSOCK \
+		     -tpmdev emulator,id=tpm0,chardev=chrtpm \
+		     -device tpm-crb,tpmdev=tpm0"
+
+	local debug_options
+	debug_options="-monitor stdio \
+		     -debugcon file:debug.log -global isa-debugcon.iobase=0x402 \
+		     -serial file:serial.log"
+
+	set -x
+	qemu-system-x86_64 -enable-kvm \
+			   $uefi_code_options \
+			   $uefi_vars_options \
+			   -machine type=q35,smm=on,accel=kvm \
+			   -smp 4 \
+			   -device virtio-scsi-pci,id=scsi \
+			   -drive if=none,id=disk1,file=${image} \
+			   -device scsi-hd,drive=disk1 \
+			   $debug_options \
+			   -m 4096 \
+			   $tpm_options \
+			   -device virtio-rng-pci \
+			   -net nic -net user
+}
+
 mkdir -p "$opt_cache_dir"
 
 case $# in
@@ -267,5 +341,12 @@ esac
 
 check_system || exit 1
 cleanup_domain $opt_vm_name
-install_from_disk $opt_vm_name $ALP_IMG_LOCAL
 
+case $opt_run in
+libvirt)
+	run_libvirt $opt_vm_name $ALP_IMG_LOCAL;;
+qemu)
+	run_qemu $opt_vm_name $ALP_IMG_LOCAL;;
+*)
+	echo "Unknown runner $opt_run" >&2;;
+esac
