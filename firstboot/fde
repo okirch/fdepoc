@@ -623,7 +623,11 @@ function fde_update_grub {
     cat $grub_cfg_file | while read line; do
 	case "$line" in
 	*cryptomount*)
-	    fde_frob_cryptomount_command $line;;
+            if [ "$sealed_key_file" != "" ]; then
+                fde_frob_cryptomount_command $line
+            else
+                echo $line | sed -e 's/-p ".*"//'
+            fi;;
 	*)
 	    echo "$line";;
 	esac
@@ -727,6 +731,10 @@ function fde_setup_encrypted {
     if $with_tpm && ! fde_protect_tpm "${luks_dev}" "${luks_keyfile}"; then
 	fde_error "Failed to protect encrypted volume with TPM"
 	with_tpm=false
+    fi
+
+    if ! $with_tpm && ! $with_ccid; then
+        fde_update_grub "/boot/efi/EFI/BOOT"
     fi
 
     if $with_pass || $with_tpm || $with_ccid; then
