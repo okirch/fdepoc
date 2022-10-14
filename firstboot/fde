@@ -775,17 +775,6 @@ function fde_setup_unencrypted {
 }
 
 
-function get_efivar_binary_byte {
-
-    name="$1"
-    path="/sys/firmware/efi/vars/$name/data"
-    if [ ! -f "$path" ]; then
-	echo "n/a"
-    else
-	cat "$path" | tr '\0\1' '01'
-    fi
-}
-
 function fde_platform_is_tpm_capable {
 
     if ! tpm2_selftest -V -f; then
@@ -798,10 +787,8 @@ function fde_platform_is_tpm_capable {
 	return 1
     fi
 
-    secure_boot=$(get_efivar_binary_byte SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c)
-    setup_mode=$(get_efivar_binary_byte SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c)
-    if [ "$secure_boot" != 1 -a "$setup_mode" != 0 ]; then
-	fde_trace "Secure Boot not enabled (secure_boot=$secure_boot; setup_mode=$setup_mode)"
+    if ! mokutil --sb-state 2> /dev/null | grep -q "enabled" ; then
+	fde_trace "Secure Boot not enabled"
 	fde_trace "This system does not seem to use Secure Boot. Full disk encryption not available"
 	return 1
     fi
