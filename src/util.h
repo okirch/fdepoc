@@ -80,4 +80,7 @@ extern const tpm_evdigest_t *parse_digest(const char *string, const char *algo);
 
 extern void		hexdump(const void *data, size_t size, void (*)(const char *, ...), unsigned int indent);
 
+extern bool		__convert_from_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes);
+extern bool		__convert_to_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes);
+
 #endif /* UTIL_H */

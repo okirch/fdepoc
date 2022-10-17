@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <iconv.h>
 
 #include "util.h"
 #include "digest.h"
@@ -148,3 +149,52 @@ hexdump(const void *data, size_t size, void (*print_fn)(const char *, ...), unsi
 				i, octets, ascii);
 	}
 }
+
+/*
+ * Conversion between UTF-8 and UTF-16LE for EFI event log
+ */
+bool
+__convert_from_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes)
+{
+	iconv_t *ctx;
+
+	ctx = iconv_open("utf8", "utf16le");
+
+	while (in_bytes) {
+		size_t converted;
+
+		converted = iconv(ctx,
+				&in_string, &in_bytes,
+				&out_string, &out_bytes);
+		if (converted < 0) {
+			perror("iconv");
+			return false;
+		}
+	}
+	*out_string = '\0';
+
+	return true;
+}
+
+bool
+__convert_to_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes)
+{
+	iconv_t *ctx;
+
+	ctx = iconv_open("utf16le", "utf8");
+
+	while (in_bytes) {
+		size_t converted;
+
+		converted = iconv(ctx,
+				&in_string, &in_bytes,
+				&out_string, &out_bytes);
+		if (converted < 0) {
+			perror("iconv");
+			return false;
+		}
+	}
+
+	return true;
+}
+

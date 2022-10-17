@@ -18,10 +18,10 @@
  * Written by Olaf Kirch <okir@suse.com>
  */
 
-
-
 #ifndef BUFPARSER_H
 #define BUFPARSER_H
+
+#include "util.h"
 
 typedef struct bufparser {
 	unsigned int		pos, len;
@@ -139,53 +139,6 @@ bufparser_get_buffer(bufparser_t *bp, unsigned int count, bufparser_t *res)
 
 	bufparser_init(res, bp->data + bp->pos, count);
 	bp->pos += count;
-	return true;
-}
-
-#include <iconv.h>
-
-static inline bool
-__convert_from_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes)
-{
-	iconv_t *ctx;
-
-	ctx = iconv_open("utf8", "utf16le");
-
-	while (in_bytes) {
-		size_t converted;
-
-		converted = iconv(ctx,
-				&in_string, &in_bytes,
-				&out_string, &out_bytes);
-		if (converted < 0) {
-			perror("iconv");
-			return false;
-		}
-	}
-	*out_string = '\0';
-
-	return true;
-}
-
-static inline bool
-__convert_to_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes)
-{
-	iconv_t *ctx;
-
-	ctx = iconv_open("utf16le", "utf8");
-
-	while (in_bytes) {
-		size_t converted;
-
-		converted = iconv(ctx,
-				&in_string, &in_bytes,
-				&out_string, &out_bytes);
-		if (converted < 0) {
-			perror("iconv");
-			return false;
-		}
-	}
-
 	return true;
 }
 
