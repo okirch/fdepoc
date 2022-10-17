@@ -198,6 +198,24 @@ bufbuilder_init(bufbuilder_t *bp, void *data, unsigned int len)
 	bp->pos = 0;
 }
 
+static inline bufbuilder_t *
+bufbuilder_alloc(unsigned long size)
+{
+	bufbuilder_t *bp;
+
+	size = (size + 7) & ~7UL;
+	bp = malloc(sizeof(*bp) + size);
+	bufbuilder_init(bp, (void *) (bp + 1), size);
+
+	return bp;
+}
+
+static inline void
+bufbuilder_free(bufbuilder_t *bp)
+{
+	free(bp);
+}
+
 static inline unsigned int
 bufbuilder_tailroom(const bufbuilder_t *bp)
 {
