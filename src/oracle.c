@@ -33,6 +33,7 @@
 
 #include "util.h"
 #include "eventlog.h"
+#include "bufparser.h"
 
 enum {
 	PREDICT_FROM_ZERO,
@@ -297,7 +298,7 @@ predictor_extend_hash(struct predictor *pred, const tpm_evdigest_t *d)
 }
 
 static const tpm_evdigest_t *
-predictor_compute_digest(struct predictor *pred, const char *data, unsigned int size)
+predictor_compute_digest(struct predictor *pred, const void *data, unsigned int size)
 {
 	static tpm_evdigest_t md;
 	EVP_MD_CTX *mdctx;
@@ -316,23 +317,23 @@ predictor_compute_digest(struct predictor *pred, const char *data, unsigned int 
 
 #define PREDICTOR_DIGEST_SHORT_READ_OKAY	0x0001
 
-static const tpm_evdigest_t *
-predictor_compute_file_digest(struct predictor *pred, const char *filename, int fd, int flags)
+static bufbuilder_t *
+file_data_load_from_fd(const char *filename, int fd, int flags)
 {
-	const tpm_evdigest_t *md;
+	bufbuilder_t *bp;
 	struct stat stb;
-	char *buffer;
 	int count;
 
 	if (fstat(fd, &stb) < 0)
 		fatal("Cannot stat %s: %m\n", filename);
 
-	if (!(buffer = malloc(stb.st_size)))
+	bp = bufbuilder_alloc(stb.st_size);
+	if (bp == NULL)
 		fatal("Cannot allocate buffer of %lu bytes for %s: %m\n",
 				(unsigned long) stb.st_size,
 				filename);
 
-	count = read(fd, buffer, stb.st_size);
+	count = read(fd, bp->data, stb.st_size);
 	if (count < 0)
 		fatal("Error while reading from %s: %m\n", filename);
 
@@ -345,8 +346,31 @@ predictor_compute_file_digest(struct predictor *pred, const char *filename, int 
 	close(fd);
 
 	debug("Read %u bytes from %s\n", count, filename);
-	md = predictor_compute_digest(pred, buffer, count);
-	free(buffer);
+	return bp;
+}
+
+static bufbuilder_t *
+file_data_load(const char *filename, int flags)
+{
+	int fd;
+
+	debug("Reading %s\n", filename);
+	if ((fd = open(filename, O_RDONLY)) < 0)
+		fatal("Unable to open file %s: %m\n", filename);
+
+	return file_data_load_from_fd(filename, fd, flags);
+}
+
+static const tpm_evdigest_t *
+predictor_compute_file_digest(struct predictor *pred, const char *filename, int fd, int flags)
+{
+	const tpm_evdigest_t *md;
+	bufbuilder_t *buffer;
+
+	buffer = file_data_load_from_fd(filename, fd, flags);
+
+	md = predictor_compute_digest(pred, buffer->data, buffer->pos);
+	bufbuilder_free(buffer);
 
 	return md;
 }
