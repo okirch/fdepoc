@@ -27,7 +27,7 @@
 
 #include "digest.h"
 
-extern bool	opt_debug;
+extern unsigned int	opt_debug;
 
 static inline void
 debug(const char *fmt, ...)

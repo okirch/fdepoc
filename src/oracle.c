@@ -70,7 +70,7 @@ static struct option options[] = {
 	{ NULL }
 };
 
-bool opt_debug	= false;
+unsigned int opt_debug	= 0;
 
 static void	predictor_report_plain(struct predictor *pred);
 static void	predictor_report_tpm2_tools(struct predictor *pred);
@@ -659,7 +659,7 @@ main(int argc, char **argv)
 			opt_from = PREDICT_FROM_EVENTLOG;
 			break;
 		case 'd':
-			opt_debug = true;
+			opt_debug += 1;
 			break;
 		case 'h':
 			usage(0, NULL);
