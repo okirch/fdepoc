@@ -11,7 +11,7 @@ ALP_IMG_URL=https://download.opensuse.org/repositories/SUSE:/ALP/images/
 # As long as ALP uses its own buildcert to sign Secure Boot related code,
 # KVM needs a special set of SB variables:
 UEFI_ALP_VARS_FILE="/usr/share/qemu/ovmf-x86_64-smm-devel-vars.bin"
-UEFI_OKIR_VARS_FILE="/usr/share/qemu/ovmf-x86_64-smm-ms-vars.bin"
+UEFI_OKIR_VARS_FILE="/usr/share/qemu/ovmf-x86_64-smm-alp-vars.bin"
 
 DEFAULT_IMG_CACHE="/var/tmp/alp-demo"
 DEFAULT_VM_NAME="alp-demo"
