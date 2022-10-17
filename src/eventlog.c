@@ -436,6 +436,15 @@ tpm_parsed_event_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *print_
 		parsed->print(parsed, print_fn);
 }
 
+bufbuilder_t *
+tpm_parsed_event_rebuild(tpm_parsed_event_t *parsed, const void *raw_data, unsigned int raw_data_len)
+{
+	if (parsed && parsed->rebuild)
+		return parsed->rebuild(parsed, raw_data, raw_data_len);
+
+	return NULL;
+}
+
 const char *
 tpm_event_decode_uuid(const unsigned char *data)
 {

@@ -164,6 +164,7 @@ typedef struct tpm_parsed_event {
 	unsigned int		event_type;
 	void			(*destroy)(struct tpm_parsed_event *);
 	void			(*print)(struct tpm_parsed_event *, tpm_event_bit_printer *);
+	struct bufbuilder *	(*rebuild)(const struct tpm_parsed_event *, const void *raw_data, unsigned int raw_data_len);
 
 	union {
 		struct {
@@ -198,6 +199,7 @@ extern bool			tpm_efi_bsa_event_extract_location(tpm_parsed_event_t *parsed,
 					char **dev_ret, char **path_ret);
 extern void			tpm_parsed_event_print(tpm_parsed_event_t *parsed,
 					tpm_event_bit_printer *);
+extern struct bufbuilder *	tpm_parsed_event_rebuild(tpm_parsed_event_t *, const void *, unsigned int);
 
 struct bufparser; /* fwd decl */
 
