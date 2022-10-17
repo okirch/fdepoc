@@ -145,7 +145,7 @@ bufparser_get_buffer(bufparser_t *bp, unsigned int count, bufparser_t *res)
 #include <iconv.h>
 
 static inline bool
-__convert_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes)
+__convert_from_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes)
 {
 	iconv_t *ctx;
 
@@ -167,6 +167,28 @@ __convert_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out
 	return true;
 }
 
+static inline bool
+__convert_to_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes)
+{
+	iconv_t *ctx;
+
+	ctx = iconv_open("utf16le", "utf8");
+
+	while (in_bytes) {
+		size_t converted;
+
+		converted = iconv(ctx,
+				&in_string, &in_bytes,
+				&out_string, &out_bytes);
+		if (converted < 0) {
+			perror("iconv");
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static inline char *
 bufparser_get_utf16le(bufparser_t *bp, size_t len)
 {
@@ -181,7 +203,7 @@ bufparser_get_utf16le(bufparser_t *bp, size_t len)
 
 	utf8 = malloc(4 * (len + 1));
 
-	if (__convert_utf16le(utf16, 2 * len, utf8, 4 * len))
+	if (__convert_from_utf16le(utf16, 2 * len, utf8, 4 * len))
 		result = strdup(utf8);
 
 	free(utf16);
@@ -261,6 +283,27 @@ bufbuilder_put_u64le(bufbuilder_t *bp, uint64_t value)
 	uint64_t tmp = htole64(value);
 
 	return bufbuilder_put(bp, &tmp, sizeof(tmp));
+}
+
+static inline bool
+bufbuilder_put_utf16le(bufbuilder_t *bp, char *utf8, unsigned int *size_ret_p)
+{
+	unsigned int len = strlen(utf8);
+	char *utf16;
+	bool ok = true;
+
+	utf16 = malloc(2 * len);
+	if (!utf16)
+		fatal("out of memory");
+
+	ok = __convert_to_utf16le(utf8, len, utf16, 2 * len);
+	if (ok)
+		ok = bufbuilder_put(bp, utf16, 2 * len);
+	if (ok && size_ret_p)
+		*size_ret_p = 2 * len;
+
+	free(utf16);
+	return ok;
 }
 
 static inline bool
