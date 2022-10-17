@@ -451,18 +451,32 @@ predictor_compute_efi_file_digest(struct predictor *pred, const char *device_pat
 }
 
 static const tpm_evdigest_t *
-predictor_compute_efi_variable_digest(struct predictor *pred, const char *var_name)
+predictor_compute_efi_variable_digest(struct predictor *pred, tpm_parsed_event_t *parsed, const char *var_name)
 {
 	char filename[PATH_MAX];
-	int fd;
+	bufbuilder_t *file_data, *efi_data;
+	const tpm_evdigest_t *md;
 
 	snprintf(filename, sizeof(filename), "/sys/firmware/efi/vars/%s/data", var_name);
-	debug("Reading %s\n", filename);
 
-	if ((fd = open(filename, O_RDONLY)) < 0)
-		fatal("Unable to open file %s: %m\n", filename);
+	file_data = file_data_load(filename, PREDICTOR_DIGEST_SHORT_READ_OKAY);
+	if (file_data == NULL)
+		return NULL;
 
-	return predictor_compute_file_digest(pred, filename, fd, PREDICTOR_DIGEST_SHORT_READ_OKAY);
+	efi_data = tpm_parsed_event_rebuild(parsed, file_data->data, file_data->pos);
+	if (efi_data == NULL)
+		fatal("Unable to re-marshal EFI variable\n");
+
+	if (opt_debug > 1) {
+		debug("  Remarshaled blob for EFI variable %s:\n", var_name);
+		hexdump(efi_data->data, efi_data->pos, debug, 8);
+	}
+
+	md = predictor_compute_digest(pred, efi_data->data, efi_data->pos);
+
+	bufbuilder_free(file_data);
+	bufbuilder_free(efi_data);
+	return md;
 }
 
 static void
@@ -516,11 +530,19 @@ predictor_compute_efi_variable(struct predictor *pred, tpm_event_t *ev, const ch
 	if (!(var_name = tpm_efi_variable_event_extract_full_varname(parsed)))
 		fatal("Unable to extract EFI variable name from EFI_VARIABLE event\n");
 
-	/* Not quite: we need to compute the digest over the data blob in the
-	 * exact format that's included in the raw event data. */
-	md = predictor_compute_efi_variable_digest(pred, var_name);
-
 	*desc_p = var_name;
+
+	if (!strcmp(var_name, "KEK-8be4df61-93ca-11d2-aa0d-00e098032b8c")
+	 || !strcmp(var_name, "db-d719b2cb-3d3a-4596-a3bc-dad00e67656f")
+	 || !strcmp(var_name, "dbx-d719b2cb-3d3a-4596-a3bc-dad00e67656f")
+	 || !strcmp(var_name, "SbatLevel-605dab50-e046-4300-abb6-3dd810dd8b23")) {
+		md = tpm_event_get_digest(ev, pred->algo);
+		if (md == NULL)
+			debug("Event does not provide a digest for algorithm %s\n", pred->algo);
+	} else {
+		md = predictor_compute_efi_variable_digest(pred, parsed, var_name);
+	}
+
 	return md;
 }
 
