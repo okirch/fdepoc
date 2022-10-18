@@ -21,6 +21,7 @@
 #ifndef BUFPARSER_H
 #define BUFPARSER_H
 
+#include <string.h>
 #include "util.h"
 
 typedef struct bufparser {

@@ -19,10 +19,8 @@
  */
 
 #include <openssl/evp.h>
-#include <sys/stat.h>
 #include <sys/mount.h>
 #include <getopt.h>
-#include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,6 +32,7 @@
 #include "util.h"
 #include "eventlog.h"
 #include "bufparser.h"
+#include "runtime.h"
 
 enum {
 	PREDICT_FROM_ZERO,
@@ -315,59 +314,13 @@ predictor_compute_digest(struct predictor *pred, const void *data, unsigned int 
 	return &md;
 }
 
-#define PREDICTOR_DIGEST_SHORT_READ_OKAY	0x0001
-
-static bufbuilder_t *
-file_data_load_from_fd(const char *filename, int fd, int flags)
-{
-	bufbuilder_t *bp;
-	struct stat stb;
-	int count;
-
-	if (fstat(fd, &stb) < 0)
-		fatal("Cannot stat %s: %m\n", filename);
-
-	bp = bufbuilder_alloc(stb.st_size);
-	if (bp == NULL)
-		fatal("Cannot allocate buffer of %lu bytes for %s: %m\n",
-				(unsigned long) stb.st_size,
-				filename);
-
-	count = read(fd, bp->data, stb.st_size);
-	if (count < 0)
-		fatal("Error while reading from %s: %m\n", filename);
-
-	if (flags & PREDICTOR_DIGEST_SHORT_READ_OKAY) {
-		/* NOP */
-	} else if (count != stb.st_size) {
-		fatal("Short read from %s\n", filename);
-	}
-
-	close(fd);
-
-	debug("Read %u bytes from %s\n", count, filename);
-	return bp;
-}
-
-static bufbuilder_t *
-file_data_load(const char *filename, int flags)
-{
-	int fd;
-
-	debug("Reading %s\n", filename);
-	if ((fd = open(filename, O_RDONLY)) < 0)
-		fatal("Unable to open file %s: %m\n", filename);
-
-	return file_data_load_from_fd(filename, fd, flags);
-}
-
 static const tpm_evdigest_t *
-predictor_compute_file_digest(struct predictor *pred, const char *filename, int fd, int flags)
+predictor_compute_file_digest(struct predictor *pred, const char *filename, int flags)
 {
 	const tpm_evdigest_t *md;
 	bufbuilder_t *buffer;
 
-	buffer = file_data_load_from_fd(filename, fd, flags);
+	buffer = runtime_read_file(filename, flags);
 
 	md = predictor_compute_digest(pred, buffer->data, buffer->pos);
 	bufbuilder_free(buffer);
@@ -453,13 +406,10 @@ predictor_compute_efi_file_digest(struct predictor *pred, const char *device_pat
 static const tpm_evdigest_t *
 predictor_compute_efi_variable_digest(struct predictor *pred, tpm_parsed_event_t *parsed, const char *var_name)
 {
-	char filename[PATH_MAX];
 	bufbuilder_t *file_data, *efi_data;
 	const tpm_evdigest_t *md;
 
-	snprintf(filename, sizeof(filename), "/sys/firmware/efi/vars/%s/data", var_name);
-
-	file_data = file_data_load(filename, PREDICTOR_DIGEST_SHORT_READ_OKAY);
+	file_data = runtime_read_efi_variable(var_name);
 	if (file_data == NULL)
 		return NULL;
 
@@ -493,12 +443,8 @@ static void
 predictor_update_file(struct predictor *pred, const char *filename)
 {
 	const tpm_evdigest_t *md;
-	int fd;
 
-	if ((fd = open(filename, O_RDONLY)) < 0)
-		fatal("Unable to open file %s: %m\n", filename);
-
-	md = predictor_compute_file_digest(pred, filename, fd, 0);
+	md = predictor_compute_file_digest(pred, filename, 0);
 	predictor_extend_hash(pred, md);
 }
 
