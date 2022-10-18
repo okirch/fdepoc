@@ -232,20 +232,20 @@ again:
 static bool
 __tpm_event_parse_tcg2_info(tpm_event_t *ev, struct tpm_event_log_tcg2_info *info)
 {
-	bufparser_t buf;
+	buffer_t buf;
 	uint32_t i, algo_info_count;
 
-	bufparser_init(&buf, ev->event_data, ev->event_size);
+	buffer_init_read(&buf, ev->event_data, ev->event_size);
 
 	/* skip over magic signature string */
-	bufparser_skip(&buf, 16);
+	buffer_skip(&buf, 16);
 
-	if (!bufparser_get_u32le(&buf, &info->platform_class)
-	 || !bufparser_get_u8(&buf, &info->spec_version_major)
-	 || !bufparser_get_u8(&buf, &info->spec_version_minor)
-	 || !bufparser_get_u8(&buf, &info->spec_errata)
-	 || !bufparser_get_u8(&buf, &info->uintn_size)
-	 || !bufparser_get_u32le(&buf, &algo_info_count)
+	if (!buffer_get_u32le(&buf, &info->platform_class)
+	 || !buffer_get_u8(&buf, &info->spec_version_major)
+	 || !buffer_get_u8(&buf, &info->spec_version_minor)
+	 || !buffer_get_u8(&buf, &info->spec_errata)
+	 || !buffer_get_u8(&buf, &info->uintn_size)
+	 || !buffer_get_u32le(&buf, &algo_info_count)
 	   )
 		return false;
 
@@ -253,8 +253,8 @@ __tpm_event_parse_tcg2_info(tpm_event_t *ev, struct tpm_event_log_tcg2_info *inf
 		uint16_t algo_id, algo_size;
 		const tpm_algo_info_t *wk;
 
-		if (!bufparser_get_u16le(&buf, &algo_id)
-		 || !bufparser_get_u16le(&buf, &algo_size))
+		if (!buffer_get_u16le(&buf, &algo_id)
+		 || !buffer_get_u16le(&buf, &algo_size))
 			return false;
 
 		if (algo_id > TPM2_ALG_LAST)
@@ -522,7 +522,7 @@ __tpm_event_efi_variable_rebuild(const tpm_parsed_event_t *parsed, const void *r
 }
 
 static bool
-__tpm_event_parse_efi_variable(tpm_event_t *ev, tpm_parsed_event_t *parsed, bufparser_t *bp)
+__tpm_event_parse_efi_variable(tpm_event_t *ev, tpm_parsed_event_t *parsed, buffer_t *bp)
 {
 	uint64_t name_len, data_len;
 
@@ -530,17 +530,17 @@ __tpm_event_parse_efi_variable(tpm_event_t *ev, tpm_parsed_event_t *parsed, bufp
 	parsed->print = __tpm_event_efi_variable_print;
 	parsed->rebuild = __tpm_event_efi_variable_rebuild;
 
-	if (!bufparser_get(bp, parsed->efi_variable_event.variable_guid, sizeof(parsed->efi_variable_event.variable_guid)))
+	if (!buffer_get(bp, parsed->efi_variable_event.variable_guid, sizeof(parsed->efi_variable_event.variable_guid)))
 		return false;
 
-	if (!bufparser_get_u64le(bp, &name_len) || !bufparser_get_u64le(bp, &data_len))
+	if (!buffer_get_u64le(bp, &name_len) || !buffer_get_u64le(bp, &data_len))
 		return false;
 
-	if (!(parsed->efi_variable_event.variable_name = bufparser_get_utf16le(bp, name_len)))
+	if (!(parsed->efi_variable_event.variable_name = buffer_get_utf16le(bp, name_len)))
 		return false;
 
 	parsed->efi_variable_event.data = malloc(data_len);
-	if (!bufparser_get(bp, parsed->efi_variable_event.data, data_len))
+	if (!buffer_get(bp, parsed->efi_variable_event.data, data_len))
 		return false;
 	parsed->efi_variable_event.len = data_len;
 
@@ -579,19 +579,19 @@ __tpm_event_efi_bsa_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *pri
 }
 
 static bool
-__tpm_event_parse_efi_bsa(tpm_event_t *ev, tpm_parsed_event_t *parsed, bufparser_t *bp)
+__tpm_event_parse_efi_bsa(tpm_event_t *ev, tpm_parsed_event_t *parsed, buffer_t *bp)
 {
 	size_t device_path_len;
-	bufparser_t path_buf;
+	buffer_t path_buf;
 
 	parsed->destroy = __tpm_event_efi_bsa_destroy;
 	parsed->print = __tpm_event_efi_bsa_print;
 
-	if (!bufparser_get_u64le(bp, &parsed->efi_bsa_event.image_location)
-	 || !bufparser_get_size(bp, &parsed->efi_bsa_event.image_length)
-	 || !bufparser_get_size(bp, &parsed->efi_bsa_event.image_lt_address)
-	 || !bufparser_get_size(bp, &device_path_len)
-	 || !bufparser_get_buffer(bp, device_path_len, &path_buf))
+	if (!buffer_get_u64le(bp, &parsed->efi_bsa_event.image_location)
+	 || !buffer_get_size(bp, &parsed->efi_bsa_event.image_length)
+	 || !buffer_get_size(bp, &parsed->efi_bsa_event.image_lt_address)
+	 || !buffer_get_size(bp, &device_path_len)
+	 || !buffer_get_buffer(bp, device_path_len, &path_buf))
 		return false;
 
 	if (!__tpm_event_parse_efi_device_path(&parsed->efi_bsa_event.device_path, &path_buf))
@@ -641,9 +641,9 @@ tpm_efi_bsa_event_extract_location(tpm_parsed_event_t *parsed, char **dev_ret, c
 static bool
 __tpm_event_parse(tpm_event_t *ev, tpm_parsed_event_t *parsed)
 {
-	bufparser_t buf;
+	buffer_t buf;
 
-	bufparser_init(&buf, ev->event_data, ev->event_size);
+	buffer_init_read(&buf, ev->event_data, ev->event_size);
 
 	switch (ev->event_type) {
 	case TPM2_EFI_VARIABLE_AUTHORITY:

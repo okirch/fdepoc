@@ -42,25 +42,25 @@
 extern const char *	tpm_event_decode_uuid(const unsigned char *data);
 
 bool
-__tpm_event_parse_efi_device_path(efi_device_path_t *path, bufparser_t *bp)
+__tpm_event_parse_efi_device_path(efi_device_path_t *path, buffer_t *bp)
 {
-	while (!bufparser_eof(bp)) {
+	while (!buffer_eof(bp)) {
 		struct efi_device_path_item *item;
 
 		if (path->count >= EFI_DEVICE_PATH_MAX)
 			fatal("Cannot parse EFI device path - too many entries");
 		item = &path->entries[path->count++];
 
-		if (!bufparser_get_u8(bp, &item->type)
-		 || !bufparser_get_u8(bp, &item->subtype)
-		 || !bufparser_get_u16le(bp, &item->len))
+		if (!buffer_get_u8(bp, &item->type)
+		 || !buffer_get_u8(bp, &item->subtype)
+		 || !buffer_get_u16le(bp, &item->len))
 			return false;
 
 		/* encoded len includes the size of the header */
 		item->len -= 4;
 
 		item->data = malloc(item->len);
-		if (!bufparser_get(bp, item->data, item->len))
+		if (!buffer_get(bp, item->data, item->len))
 			return false;
 	}
 
@@ -143,14 +143,14 @@ __tpm_event_efi_device_path_item_file_path(const struct efi_device_path_item *it
 
 	if (item->type == TPM2_EFI_DEVPATH_TYPE_MEDIA_DEVICE
 	 && item->subtype == TPM2_EFI_DEVPATH_MEDIA_SUBTYPE_FILE_PATH) {
-		bufparser_t file_path_buf;
+		buffer_t file_path_buf;
 		char *s;
 
 		if (item->len / 2 >= sizeof(file_path))
 			return NULL;
 
-		bufparser_init(&file_path_buf, item->data, item->len);
-		s = bufparser_get_utf16le(&file_path_buf, item->len / 2);
+		buffer_init_read(&file_path_buf, item->data, item->len);
+		s = buffer_get_utf16le(&file_path_buf, item->len / 2);
 		if (s == NULL)
 			return NULL;
 

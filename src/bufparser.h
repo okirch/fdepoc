@@ -24,10 +24,12 @@
 #include <string.h>
 #include "util.h"
 
-typedef struct bufparser {
-	unsigned int		pos, len;
+typedef struct buffer {
+	unsigned int		rpos;
+	unsigned int		wpos;
+	unsigned int		size;
 	const unsigned char *	data;
-} bufparser_t;
+} buffer_t;
 
 typedef struct bufbuilder {
 	unsigned int		pos, size;
@@ -35,95 +37,96 @@ typedef struct bufbuilder {
 } bufbuilder_t;
 
 static inline void
-bufparser_init(bufparser_t *bp, const void *data, unsigned int len)
+buffer_init_read(buffer_t *bp, const void *data, unsigned int len)
 {
 	bp->data = (const unsigned char *) data;
-	bp->len = len;
-	bp->pos = 0;
+	bp->rpos = 0;
+	bp->wpos = len;
+	bp->size = len;
 }
 
 static inline bool
-bufparser_skip(bufparser_t *bp, unsigned int count)
+buffer_skip(buffer_t *bp, unsigned int count)
 {
-	if (count > bp->len - bp->pos)
+	if (count > bp->wpos - bp->rpos)
 		return false;
 
-	bp->pos += count;
+	bp->rpos += count;
 	return true;
 }
 
 static inline bool
-bufparser_available(const bufparser_t *bp)
+buffer_available(const buffer_t *bp)
 {
-	return bp->len - bp->pos;
+	return bp->wpos - bp->rpos;
 }
 
 static inline bool
-bufparser_eof(const bufparser_t *bp)
+buffer_eof(const buffer_t *bp)
 {
-	return bufparser_available(bp) == 0;
+	return buffer_available(bp) == 0;
 }
 
 static inline bool
-bufparser_get(bufparser_t *bp, void *dest, unsigned int count)
+buffer_get(buffer_t *bp, void *dest, unsigned int count)
 {
-	if (count > bp->len - bp->pos)
+	if (count > bp->wpos - bp->rpos)
 		return false;
 
-	memcpy(dest, bp->data + bp->pos, count);
-	bp->pos += count;
+	memcpy(dest, bp->data + bp->rpos, count);
+	bp->rpos += count;
 	return true;
 }
 
 static inline bool
-bufparser_get_u8(bufparser_t *bp, uint8_t *vp)
+buffer_get_u8(buffer_t *bp, uint8_t *vp)
 {
-	if (!bufparser_get(bp, vp, sizeof(*vp)))
+	if (!buffer_get(bp, vp, sizeof(*vp)))
 		return false;
 	return true;
 }
 
 static inline bool
-bufparser_get_u16le(bufparser_t *bp, uint16_t *vp)
+buffer_get_u16le(buffer_t *bp, uint16_t *vp)
 {
-	if (!bufparser_get(bp, vp, sizeof(*vp)))
+	if (!buffer_get(bp, vp, sizeof(*vp)))
 		return false;
 	*vp = le16toh(*vp);
 	return true;
 }
 
 static inline bool
-bufparser_get_u32le(bufparser_t *bp, uint32_t *vp)
+buffer_get_u32le(buffer_t *bp, uint32_t *vp)
 {
-	if (!bufparser_get(bp, vp, sizeof(*vp)))
+	if (!buffer_get(bp, vp, sizeof(*vp)))
 		return false;
 	*vp = le32toh(*vp);
 	return true;
 }
 
 static inline bool
-bufparser_get_u64le(bufparser_t *bp, uint64_t *vp)
+buffer_get_u64le(buffer_t *bp, uint64_t *vp)
 {
-	if (!bufparser_get(bp, vp, sizeof(*vp)))
+	if (!buffer_get(bp, vp, sizeof(*vp)))
 		return false;
 	*vp = le64toh(*vp);
 	return true;
 }
 
 static inline bool
-bufparser_get_size(bufparser_t *bp, size_t *vp)
+buffer_get_size(buffer_t *bp, size_t *vp)
 {
 	if (sizeof(*vp) == 4) {
 		uint32_t size;
 
-		if (!bufparser_get_u32le(bp, &size))
+		if (!buffer_get_u32le(bp, &size))
 			return false;
 		*vp = size;
 	} else
 	if (sizeof(*vp) == 8) {
 		uint64_t size;
 
-		if (!bufparser_get_u64le(bp, &size))
+		if (!buffer_get_u64le(bp, &size))
 			return false;
 		*vp = size;
 	} else
@@ -133,18 +136,18 @@ bufparser_get_size(bufparser_t *bp, size_t *vp)
 }
 
 static inline bool
-bufparser_get_buffer(bufparser_t *bp, unsigned int count, bufparser_t *res)
+buffer_get_buffer(buffer_t *bp, unsigned int count, buffer_t *res)
 {
-	if (count > bp->len - bp->pos)
+	if (count > bp->wpos - bp->rpos)
 		return false;
 
-	bufparser_init(res, bp->data + bp->pos, count);
-	bp->pos += count;
+	buffer_init_read(res, bp->data + bp->rpos, count);
+	bp->rpos += count;
 	return true;
 }
 
 static inline char *
-bufparser_get_utf16le(bufparser_t *bp, size_t len)
+buffer_get_utf16le(buffer_t *bp, size_t len)
 {
 	char *utf16, *utf8, *result = NULL;
 
@@ -152,7 +155,7 @@ bufparser_get_utf16le(bufparser_t *bp, size_t len)
 	if (!utf16)
 		fatal("out of memory");
 
-	if (!bufparser_get(bp, utf16, 2 * len))
+	if (!buffer_get(bp, utf16, 2 * len))
 		return NULL;
 
 	utf8 = malloc(4 * (len + 1));
