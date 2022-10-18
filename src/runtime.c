@@ -23,10 +23,10 @@
 #include <fcntl.h>
 #include "runtime.h"
 
-static bufbuilder_t *
+static buffer_t *
 __system_read_file(const char *filename, int flags)
 {
-	bufbuilder_t *bp;
+	buffer_t *bp;
 	struct stat stb;
 	int count;
 	int fd;
@@ -38,7 +38,7 @@ __system_read_file(const char *filename, int flags)
 	if (fstat(fd, &stb) < 0)
 		fatal("Cannot stat %s: %m\n", filename);
 
-	bp = bufbuilder_alloc(stb.st_size);
+	bp = buffer_alloc_write(stb.st_size);
 	if (bp == NULL)
 		fatal("Cannot allocate buffer of %lu bytes for %s: %m\n",
 				(unsigned long) stb.st_size,
@@ -60,7 +60,7 @@ __system_read_file(const char *filename, int flags)
 	return bp;
 }
 
-static bufbuilder_t *
+static buffer_t *
 __system_read_efi_variable(const char *var_name)
 {
 	char filename[PATH_MAX];
@@ -69,13 +69,13 @@ __system_read_efi_variable(const char *var_name)
 	return __system_read_file(filename, RUNTIME_SHORT_READ_OKAY);
 }
 
-bufbuilder_t *
+buffer_t *
 runtime_read_file(const char *path, int flags)
 {
 	return __system_read_file(path, flags);
 }
 
-bufbuilder_t *
+buffer_t *
 runtime_read_efi_variable(const char *var_name)
 {
 	return __system_read_efi_variable(var_name);

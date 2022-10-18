@@ -28,18 +28,13 @@ typedef struct buffer {
 	unsigned int		rpos;
 	unsigned int		wpos;
 	unsigned int		size;
-	const unsigned char *	data;
+	unsigned char *		data;
 } buffer_t;
 
-typedef struct bufbuilder {
-	unsigned int		pos, size;
-	unsigned char *		data;
-} bufbuilder_t;
-
 static inline void
-buffer_init_read(buffer_t *bp, const void *data, unsigned int len)
+buffer_init_read(buffer_t *bp, void *data, unsigned int len)
 {
-	bp->data = (const unsigned char *) data;
+	bp->data = (unsigned char *) data;
 	bp->rpos = 0;
 	bp->wpos = len;
 	bp->size = len;
@@ -55,7 +50,13 @@ buffer_skip(buffer_t *bp, unsigned int count)
 	return true;
 }
 
-static inline bool
+static inline const void *
+buffer_read_pointer(const buffer_t *bp)
+{
+	return bp->data + bp->rpos;
+}
+
+static inline unsigned int
 buffer_available(const buffer_t *bp)
 {
 	return bp->wpos - bp->rpos;
@@ -170,80 +171,81 @@ buffer_get_utf16le(buffer_t *bp, size_t len)
 }
 
 static inline void
-bufbuilder_init(bufbuilder_t *bp, void *data, unsigned int len)
+buffer_init_write(buffer_t *bp, void *data, unsigned int len)
 {
 	bp->data = (unsigned char *) data;
+	bp->rpos = 0;
+	bp->wpos = 0;
 	bp->size = len;
-	bp->pos = 0;
 }
 
-static inline bufbuilder_t *
-bufbuilder_alloc(unsigned long size)
+static inline buffer_t *
+buffer_alloc_write(unsigned long size)
 {
-	bufbuilder_t *bp;
+	buffer_t *bp;
 
 	size = (size + 7) & ~7UL;
 	bp = malloc(sizeof(*bp) + size);
-	bufbuilder_init(bp, (void *) (bp + 1), size);
+	buffer_init_write(bp, (void *) (bp + 1), size);
 
 	return bp;
 }
 
 static inline void
-bufbuilder_free(bufbuilder_t *bp)
+buffer_free(buffer_t *bp)
 {
 	free(bp);
 }
 
 static inline unsigned int
-bufbuilder_tailroom(const bufbuilder_t *bp)
+buffer_tailroom(const buffer_t *bp)
 {
-	return bp->size - bp->pos;
+	return bp->size - bp->wpos;
 }
 
 static inline bool
-bufbuilder_put(bufbuilder_t *bp, const void *src, unsigned int count)
+buffer_put(buffer_t *bp, const void *src, unsigned int count)
 {
-	if (count > bp->size - bp->pos)
+	if (count > bp->size - bp->wpos)
 		return false;
 
-	memcpy(bp->data + bp->pos, src, count);
-	bp->pos += count;
+	memcpy(bp->data + bp->wpos, src, count);
+	bp->wpos += count;
 	return true;
 }
 
 static inline bool
-bufbuilder_put_u8(bufbuilder_t *bp, uint8_t *vp)
+buffer_put_u8(buffer_t *bp, uint8_t *vp)
 {
-	return bufbuilder_put(bp, vp, sizeof(*vp));
+	return buffer_put(bp, vp, sizeof(*vp));
 }
 
 static inline bool
-bufbuilder_put_u16le(bufbuilder_t *bp, uint16_t value)
+buffer_put_u16le(buffer_t *bp, uint16_t value)
 {
 	uint16_t tmp = htole16(value);
 
-	return bufbuilder_put(bp, &tmp, sizeof(tmp));
+	return buffer_put(bp, &tmp, sizeof(tmp));
 }
 
 static inline bool
-bufbuilder_put_u32le(bufbuilder_t *bp, uint32_t value)
+buffer_put_u32le(buffer_t *bp, uint32_t value)
 {
 	uint32_t tmp = htole32(value);
 
-	return bufbuilder_put(bp, &tmp, sizeof(tmp));
+	return buffer_put(bp, &tmp, sizeof(tmp));
 }
 
 static inline bool
-bufbuilder_put_u64le(bufbuilder_t *bp, uint64_t value)
+buffer_put_u64le(buffer_t *bp, uint64_t value)
 {
 	uint64_t tmp = htole64(value);
 
-	return bufbuilder_put(bp, &tmp, sizeof(tmp));
+	return buffer_put(bp, &tmp, sizeof(tmp));
 }
 
 static inline bool
-bufbuilder_put_utf16le(bufbuilder_t *bp, char *utf8, unsigned int *size_ret_p)
+buffer_put_utf16le(buffer_t *bp, char *utf8, unsigned int *size_ret_p)
 {
 	unsigned int len = strlen(utf8);
 	char *utf16;
@@ -255,7 +257,7 @@ bufbuilder_put_utf16le(bufbuilder_t *bp, char *utf8, unsigned int *size_ret_p)
 
 	ok = __convert_to_utf16le(utf8, len, utf16, 2 * len);
 	if (ok)
-		ok = bufbuilder_put(bp, utf16, 2 * len);
+		ok = buffer_put(bp, utf16, 2 * len);
 	if (ok && size_ret_p)
 		*size_ret_p = 2 * len;
 
@@ -264,13 +266,13 @@ bufbuilder_put_utf16le(bufbuilder_t *bp, char *utf8, unsigned int *size_ret_p)
 }
 
 static inline bool
-bufbuilder_put_size(bufbuilder_t *bp, size_t value)
+buffer_put_size(buffer_t *bp, size_t value)
 {
 	if (sizeof(value) == 4) {
-		return bufbuilder_put_u32le(bp, value);
+		return buffer_put_u32le(bp, value);
 	} else
 	if (sizeof(value) == 8) {
-		return bufbuilder_put_u64le(bp, value);
+		return buffer_put_u64le(bp, value);
 	} else
 		return false;
 

@@ -318,12 +318,14 @@ static const tpm_evdigest_t *
 predictor_compute_file_digest(struct predictor *pred, const char *filename, int flags)
 {
 	const tpm_evdigest_t *md;
-	bufbuilder_t *buffer;
+	buffer_t *buffer;
 
 	buffer = runtime_read_file(filename, flags);
 
-	md = predictor_compute_digest(pred, buffer->data, buffer->pos);
-	bufbuilder_free(buffer);
+	md = predictor_compute_digest(pred,
+			buffer_read_pointer(buffer),
+			buffer_available(buffer));
+	buffer_free(buffer);
 
 	return md;
 }
@@ -406,26 +408,32 @@ predictor_compute_efi_file_digest(struct predictor *pred, const char *device_pat
 static const tpm_evdigest_t *
 predictor_compute_efi_variable_digest(struct predictor *pred, tpm_parsed_event_t *parsed, const char *var_name)
 {
-	bufbuilder_t *file_data, *efi_data;
+	buffer_t *file_data, *efi_data;
 	const tpm_evdigest_t *md;
 
 	file_data = runtime_read_efi_variable(var_name);
 	if (file_data == NULL)
 		return NULL;
 
-	efi_data = tpm_parsed_event_rebuild(parsed, file_data->data, file_data->pos);
+	efi_data = tpm_parsed_event_rebuild(parsed,
+			buffer_read_pointer(file_data),
+			buffer_available(file_data));
 	if (efi_data == NULL)
 		fatal("Unable to re-marshal EFI variable\n");
 
 	if (opt_debug > 1) {
 		debug("  Remarshaled blob for EFI variable %s:\n", var_name);
-		hexdump(efi_data->data, efi_data->pos, debug, 8);
+		hexdump(buffer_read_pointer(efi_data),
+			buffer_available(efi_data),
+			debug, 8);
 	}
 
-	md = predictor_compute_digest(pred, efi_data->data, efi_data->pos);
+	md = predictor_compute_digest(pred,
+			buffer_read_pointer(efi_data),
+			buffer_available(efi_data));
 
-	bufbuilder_free(file_data);
-	bufbuilder_free(efi_data);
+	buffer_free(file_data);
+	buffer_free(efi_data);
 	return md;
 }
 
