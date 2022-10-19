@@ -29,6 +29,7 @@
 #include <ctype.h>
 #include <tss2_fapi.h>
 
+#include "oracle.h"
 #include "util.h"
 #include "eventlog.h"
 #include "bufparser.h"
@@ -59,6 +60,10 @@ struct predictor {
 
 #define GRUB_PCR_SNAPSHOT_UUID	"7ce323f2-b841-4d30-a0e9-5474a76c9a3f"
 
+enum {
+	OPT_USE_PESIGN = 256,
+};
+
 static struct option options[] = {
 	{ "from-zero",		no_argument,		0,	'Z' },
 	{ "from-current",	no_argument,		0,	'C' },
@@ -66,11 +71,13 @@ static struct option options[] = {
 	{ "from-eventlog",	no_argument,		0,	'L' },
 	{ "algorithm",		required_argument,	0,	'A' },
 	{ "format",		required_argument,	0,	'F' },
+	{ "use-pesign",		no_argument,		0,	OPT_USE_PESIGN },
 
 	{ NULL }
 };
 
 unsigned int opt_debug	= 0;
+unsigned int opt_use_pesign = 0;
 
 static void	predictor_report_plain(struct predictor *pred);
 static void	predictor_report_tpm2_tools(struct predictor *pred);
@@ -314,6 +321,12 @@ predictor_compute_digest(struct predictor *pred, const void *data, unsigned int 
 	return &md;
 }
 
+static digest_ctx_t *
+predictor_create_digest_ctx(struct predictor *pred)
+{
+	return digest_ctx_new(pred->algo_info);
+}
+
 static const tpm_evdigest_t *
 predictor_compute_file_digest(struct predictor *pred, const char *filename, int flags)
 {
@@ -331,7 +344,7 @@ predictor_compute_file_digest(struct predictor *pred, const char *filename, int 
 }
 
 static const tpm_evdigest_t *
-predictor_compute_pecoff_digest(struct predictor *pred, const char *filename)
+__predictor_compute_pecoff_digest_old(struct predictor *pred, const char *filename)
 {
 	char cmdbuf[8192], linebuf[1024];
 	const tpm_evdigest_t *md = NULL;
@@ -358,6 +371,7 @@ predictor_compute_pecoff_digest(struct predictor *pred, const char *filename)
 		if (!(md = parse_digest(w, pred->algo)))
 			fatal("unable to parse %s digest printed by pesign: \"%s\"\n", pred->algo, w);
 
+		debug("  pesign digest: %s\n", digest_print(md));
 		break;
 	}
 
@@ -365,6 +379,36 @@ predictor_compute_pecoff_digest(struct predictor *pred, const char *filename)
 		fatal("pesign command failed: %m\n");
 
 	return md;
+}
+
+static const tpm_evdigest_t *
+__predictor_compute_pecoff_digest_new(struct predictor *pred, const char *filename)
+{
+	digest_ctx_t *digest;
+	const tpm_evdigest_t *md;
+	buffer_t *buffer;
+
+	debug("Computing authenticode digest using built-in PECOFF parser\n");
+	if (!(buffer = runtime_read_file(filename, 0)))
+		return NULL;
+
+	digest = predictor_create_digest_ctx(pred);
+
+	md = authenticode_get_digest(buffer, digest);
+
+	buffer_free(buffer);
+	digest_ctx_free(digest);
+
+	return md;
+}
+
+static const tpm_evdigest_t *
+predictor_compute_pecoff_digest(struct predictor *pred, const char *filename)
+{
+	if (opt_use_pesign)
+		return __predictor_compute_pecoff_digest_old(pred, filename);
+
+	return __predictor_compute_pecoff_digest_new(pred, filename);
 }
 
 static const tpm_evdigest_t *
@@ -557,6 +601,10 @@ predictor_update_eventlog(struct predictor *pred)
 				new_digest = old_digest;
 			}
 
+			if (new_digest == NULL)
+				fatal("Cannot recompute PCR for event type %s\n",
+						tpm_event_type_to_string(ev->event_type));
+
 			if (opt_debug && new_digest != old_digest) {
 				if (new_digest->size == old_digest->size
 				 && !memcmp(new_digest->data, old_digest->data, old_digest->size)) {
@@ -660,6 +708,9 @@ main(int argc, char **argv)
 			break;
 		case 'd':
 			opt_debug += 1;
+			break;
+		case OPT_USE_PESIGN:
+			opt_use_pesign = 1;
 			break;
 		case 'h':
 			usage(0, NULL);

@@ -69,6 +69,16 @@ buffer_eof(const buffer_t *bp)
 }
 
 static inline bool
+buffer_seek_read(buffer_t *bp, unsigned int new_pos)
+{
+	if (new_pos > bp->wpos)
+		return false;
+
+	bp->rpos = new_pos;
+	return true;
+}
+
+static inline bool
 buffer_get(buffer_t *bp, void *dest, unsigned int count)
 {
 	if (count > bp->wpos - bp->rpos)

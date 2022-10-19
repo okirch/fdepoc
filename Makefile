@@ -7,7 +7,7 @@ FAPI_LINK	= -ltss2-fapi -lcrypto
 FIDO_LINK	= -lfido2 -lcrypto
 TOOLS		= pcr-oracle fde-token
 
-ORACLE_SRCS	= oracle.c eventlog.c efi-devpath.c digest.c runtime.c util.c
+ORACLE_SRCS	= oracle.c eventlog.c efi-devpath.c digest.c runtime.c authenticode.c util.c
 ORACLE_OBJS	= $(addprefix build/,$(patsubst %.c,%.o,$(ORACLE_SRCS)))
 
 all: $(TOOLS)
