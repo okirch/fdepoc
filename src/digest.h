@@ -36,12 +36,19 @@ typedef struct tpm_evdigest {
 	unsigned char		data[EVP_MAX_MD_SIZE];
 } tpm_evdigest_t;
 
-extern const tpm_algo_info_t *		digest_by_tpm_alg(unsigned int algo_id);
-extern const tpm_algo_info_t *		digest_by_name(const char *name);
-extern const char *			digest_print(const tpm_evdigest_t *);
-extern const char *			digest_print_value(const tpm_evdigest_t *);
-extern const char *			digest_algo_name(const tpm_evdigest_t *);
+typedef struct digest_ctx	digest_ctx_t;
 
-extern const tpm_algo_info_t *		__digest_by_tpm_alg(unsigned int, const tpm_algo_info_t *, unsigned int);
+extern const tpm_algo_info_t *	digest_by_tpm_alg(unsigned int algo_id);
+extern const tpm_algo_info_t *	digest_by_name(const char *name);
+extern const char *		digest_print(const tpm_evdigest_t *);
+extern const char *		digest_print_value(const tpm_evdigest_t *);
+extern const char *		digest_algo_name(const tpm_evdigest_t *);
+
+extern digest_ctx_t *		digest_ctx_new(const tpm_algo_info_t *);
+extern void			digest_ctx_update(digest_ctx_t *, const void *, unsigned int);
+extern tpm_evdigest_t *		digest_ctx_final(digest_ctx_t *, tpm_evdigest_t *);
+extern void			digest_ctx_free(digest_ctx_t *);
+
+extern const tpm_algo_info_t *	__digest_by_tpm_alg(unsigned int, const tpm_algo_info_t *, unsigned int);
 
 #endif /* DIGEST_H */

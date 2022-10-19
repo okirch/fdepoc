@@ -126,3 +126,68 @@ digest_print_value(const tpm_evdigest_t *md)
                 sprintf(buffer + 2 * i, "%02x", md->data[i]);
 	return buffer;
 }
+
+struct digest_ctx {
+	EVP_MD_CTX *	mdctx;
+
+	tpm_evdigest_t	md;
+};
+
+digest_ctx_t *
+digest_ctx_new(const tpm_algo_info_t *algo_info)
+{
+	const EVP_MD *evp_md;
+	digest_ctx_t *ctx;
+
+	evp_md = EVP_get_digestbyname(algo_info->openssl_name);
+	if (evp_md == NULL) {
+		error("Unknown message digest %s\n", algo_info->openssl_name);
+		return NULL;
+	}
+
+	ctx = calloc(1, sizeof(*ctx));
+	ctx->mdctx = EVP_MD_CTX_new();
+	EVP_DigestInit_ex(ctx->mdctx, evp_md, NULL);
+
+	ctx->md.algo = algo_info;
+
+	return ctx;
+}
+
+void
+digest_ctx_update(digest_ctx_t *ctx, const void *data, unsigned int size)
+{
+	if (ctx->mdctx == NULL)
+		fatal("%s: trying to update digest after having finalized it\n", __func__);
+
+	EVP_DigestUpdate(ctx->mdctx, data, size);
+}
+
+tpm_evdigest_t *
+digest_ctx_final(digest_ctx_t *ctx, tpm_evdigest_t *result)
+{
+	tpm_evdigest_t *md = &ctx->md;
+
+	if (ctx->mdctx) {
+		EVP_DigestFinal_ex(ctx->mdctx, md->data, &md->size);
+
+		EVP_MD_CTX_free(ctx->mdctx);
+		ctx->mdctx = NULL;
+	}
+
+	if (result) {
+		*result = *md;
+		md = result;
+	}
+
+	return md;
+
+}
+
+void
+digest_ctx_free(digest_ctx_t *ctx)
+{
+	(void) digest_ctx_final(ctx, NULL);
+
+	free(ctx);
+}
