@@ -57,6 +57,7 @@ __system_read_file(const char *filename, int flags)
 	close(fd);
 
 	debug("Read %u bytes from %s\n", count, filename);
+	bp->wpos = count;
 	return bp;
 }
 
