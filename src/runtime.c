@@ -28,6 +28,7 @@ __system_read_file(const char *filename, int flags)
 {
 	buffer_t *bp;
 	struct stat stb;
+	off_t size;
 	int count;
 	int fd;
 
@@ -38,19 +39,30 @@ __system_read_file(const char *filename, int flags)
 	if (fstat(fd, &stb) < 0)
 		fatal("Cannot stat %s: %m\n", filename);
 
-	bp = buffer_alloc_write(stb.st_size);
+	if (flags & RUNTIME_READ_EFIVARFS) {
+		/* The first 4 bytes (uint32_t) of the efivarfs file represent
+		 * the attributes of the variable. Skip them.
+		 */
+		if (lseek(fd, 4, SEEK_SET) < 0)
+			fatal("Cannot seek %s: %m\n", filename);
+		size = stb.st_size - 4;
+	} else {
+		size = stb.st_size;
+	}
+
+	bp = buffer_alloc_write(size);
 	if (bp == NULL)
 		fatal("Cannot allocate buffer of %lu bytes for %s: %m\n",
-				(unsigned long) stb.st_size,
+				(unsigned long) size,
 				filename);
 
-	count = read(fd, bp->data, stb.st_size);
+	count = read(fd, bp->data, size);
 	if (count < 0)
 		fatal("Error while reading from %s: %m\n", filename);
 
 	if (flags & RUNTIME_SHORT_READ_OKAY) {
 		/* NOP */
-	} else if (count != stb.st_size) {
+	} else if (count != size) {
 		fatal("Short read from %s\n", filename);
 	}
 
@@ -66,8 +78,14 @@ __system_read_efi_variable(const char *var_name)
 {
 	char filename[PATH_MAX];
 
+	/* Read the variable from efivar sysfs */
 	snprintf(filename, sizeof(filename), "/sys/firmware/efi/vars/%s/data", var_name);
-	return __system_read_file(filename, RUNTIME_SHORT_READ_OKAY);
+	if (access(filename, F_OK) == 0)
+		return __system_read_file(filename, RUNTIME_SHORT_READ_OKAY);
+
+	/* Read the variable in efivarfs sysfs */
+	snprintf(filename, sizeof(filename), "/sys/firmware/efi/efivars/%s", var_name);
+	return __system_read_file(filename, RUNTIME_SHORT_READ_OKAY | RUNTIME_READ_EFIVARFS);
 }
 
 buffer_t *
