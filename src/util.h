@@ -90,6 +90,7 @@ extern unsigned int	parse_octet_string(const char *string, unsigned char *buffer
 extern const tpm_evdigest_t *parse_digest(const char *string, const char *algo);
 
 extern void		hexdump(const void *data, size_t size, void (*)(const char *, ...), unsigned int indent);
+extern const char *	print_octet_string(const unsigned char *data, unsigned int len);
 
 extern bool		__convert_from_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes);
 extern bool		__convert_to_utf16le(char *in_string, size_t in_bytes, char *out_string, size_t out_bytes);

@@ -87,6 +87,31 @@ parse_octet_string(const char *string, unsigned char *buffer, size_t bufsz)
 	return i;
 }
 
+const char *
+print_octet_string(const unsigned char *data, unsigned int len)
+{
+	static char buffer[3 * 64 + 1];
+
+	if (len < 32) {
+		unsigned int i;
+		char *s;
+
+		s = buffer;
+		for (i = 0; i < len; ++i) {
+			if (i)
+				*s++ = ':';
+			sprintf(s, "%02x", data[i]);
+			s += 2;
+		}
+		*s = '\0';
+	} else {
+		snprintf(buffer, sizeof(buffer), "<%u bytes of data>", len);
+	}
+
+	return buffer;
+
+}
+
 const tpm_evdigest_t *
 parse_digest(const char *string, const char *algo)
 {
