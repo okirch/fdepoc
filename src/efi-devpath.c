@@ -18,19 +18,6 @@
  * Written by Olaf Kirch <okir@suse.com>
  */
 
-#if 0
-#include <fcntl.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include <stdarg.h>
-#include <stdint.h>
-#include <ctype.h>
-#include <iconv.h>
-#include <limits.h>
-#endif
-
 #include <string.h>
 
 #include <tss2/tss2_tpm2_types.h>
@@ -169,22 +156,22 @@ __tpm_event_efi_device_path_item_file_path(const struct efi_device_path_item *it
 }
 
 static void
-__tpm_event_efi_device_path_item_print(const struct efi_device_path_item *item)
+__tpm_event_efi_device_path_item_print(const struct efi_device_path_item *item, tpm_event_bit_printer *print_fn)
 {
 	const char *string;
 
 	if (item->type == TPM2_EFI_DEVPATH_TYPE_END) {
-		printf("  end\n");
+		print_fn("  end\n");
 		return;
 	}
 
 	if ((string = __tpm_event_efi_device_path_item_harddisk_uuid(item)) != NULL) {
-		printf("  harddisk   part-uuid=%s\n", string);
+		print_fn("  harddisk   part-uuid=%s\n", string);
 		return;
 	}
 
 	if ((string = __tpm_event_efi_device_path_item_file_path(item)) != NULL) {
-		printf("  file-path  \"%s\"\n", string);
+		print_fn("  file-path  \"%s\"\n", string);
 		return;
 	}
 
@@ -194,39 +181,27 @@ __tpm_event_efi_device_path_item_print(const struct efi_device_path_item *item)
 
 			pci_dev = ((unsigned char *) item->data)[1];
 			pci_fn = ((unsigned char *) item->data)[0];
-			printf("  PCI        %02x.%d\n", pci_dev, pci_fn);
+			print_fn("  PCI        %02x.%d\n", pci_dev, pci_fn);
 			return;
 		}
 	}
 
 	/* hard drive seems to have the UUID at offset 20 in item->data */
 
-	printf("  %-10s len=%d data=",
+	print_fn("  %-10s len=%d data=%s\n",
 			__efi_device_path_type_to_string(item->type, item->subtype),
-			item->len);
-
-	{
-		unsigned char *data = item->data;
-		unsigned int i;
-
-		for (i = 0; i < item->len; ++i) {
-			if (i)
-				printf(":");
-			printf("%02x", data[i]);
-		}
-	}
-
-	printf("\n");
+			item->len,
+			print_octet_string(item->data, item->len));
 }
 
 void
-__tpm_event_efi_device_path_print(const efi_device_path_t *path)
+__tpm_event_efi_device_path_print(const efi_device_path_t *path, tpm_event_bit_printer *print_fn)
 {
 	const struct efi_device_path_item *item;
 	unsigned int i;
 
 	for (i = 0, item = path->entries; i < path->count; ++i, ++item) {
-		__tpm_event_efi_device_path_item_print(item);
+		__tpm_event_efi_device_path_item_print(item, print_fn);
 	}
 }
 

@@ -575,7 +575,7 @@ __tpm_event_efi_bsa_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *pri
 #endif
 
 	print_fn("Boot Service Application; device path:\n");
-	__tpm_event_efi_device_path_print(&parsed->efi_bsa_event.device_path);
+	__tpm_event_efi_device_path_print(&parsed->efi_bsa_event.device_path, print_fn);
 }
 
 static bool
