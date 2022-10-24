@@ -42,6 +42,77 @@ parse_pcr_index(const char *word, unsigned int *ret)
 	return true;
 }
 
+static inline void
+pcr_mask_set(uint32_t *mask_p, unsigned int index)
+{
+	if (index >= 32)
+		fatal("PCR index %u out of range\n", index);
+	*mask_p |= (1 << index);
+}
+
+bool
+parse_pcr_mask(const char *word, uint32_t *ret)
+{
+	const char *orig_string = word;
+	unsigned int value;
+	const char *end;
+
+	*ret = 0;
+	while (*word) {
+		if (!isdigit(*word))
+			return false;
+
+		value = strtoul(word, (char **) &end, 10);
+		if (*end == '-' && isdigit(end[1])) {
+			unsigned int last;
+
+			last = strtoul(end + 1, (char **) &end, 10);
+			while (value < last)
+				pcr_mask_set(ret, value++);
+		}
+
+		pcr_mask_set(ret, value);
+
+		while (*end == ',')
+			++end;
+		word = end;
+	}
+
+	if (*word) {
+		fprintf(stderr, "Unable to parse PCR mask \"%s\"\n", orig_string);
+		return false;
+	}
+	return true;
+}
+
+const char *
+print_pcr_mask(unsigned int mask)
+{
+	static char buffer[128];
+	unsigned int i;
+	char *pos;
+
+	buffer[0] = '\0';
+	pos = buffer;
+
+	for (i = 0; i < 32; ) {
+		if (mask & (1 << i)) {
+			if (pos != buffer)
+				*pos++ = ',';
+			if (mask & (1 << (i + 1))) {
+				pos += sprintf(pos, "%u-", i);
+				while (mask & (1 << (i + 1)))
+					++i;
+			}
+			pos += sprintf(pos, "%u", i);
+		}
+
+		i += 1;
+	}
+
+	return buffer;
+}
+
 bool
 parse_hexdigit(const char **pos, unsigned char *ret)
 {
