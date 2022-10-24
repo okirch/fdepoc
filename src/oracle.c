@@ -48,8 +48,10 @@ enum {
 	STOP_EVENT_GRUB_FILE,
 };
 
+#define PREDICTOR_PCR_MAX	32
+
 struct predictor {
-	unsigned int		index;
+	uint32_t		pcr_mask;
 	int			from;
 
 	const char *		algo;
@@ -63,10 +65,9 @@ struct predictor {
 		char *		value;
 	} stop_event;
 
-	void			(*report_fn)(struct predictor *);
+	void			(*report_fn)(struct predictor *, unsigned int);
 
-	unsigned int		md_size;
-	unsigned char		md_value[EVP_MAX_MD_SIZE];
+	tpm_evdigest_t		pcr[PREDICTOR_PCR_MAX];
 };
 
 #define GRUB_PCR_SNAPSHOT_UUID	"7ce323f2-b841-4d30-a0e9-5474a76c9a3f"
@@ -96,9 +97,9 @@ static struct option options[] = {
 unsigned int opt_debug	= 0;
 unsigned int opt_use_pesign = 0;
 
-static void	predictor_report_plain(struct predictor *pred);
-static void	predictor_report_tpm2_tools(struct predictor *pred);
-static void	predictor_report_binary(struct predictor *pred);
+static void	predictor_report_plain(struct predictor *pred, unsigned int pcr_index);
+static void	predictor_report_tpm2_tools(struct predictor *pred, unsigned int pcr_index);
+static void	predictor_report_binary(struct predictor *pred, unsigned int pcr_index);
 
 static void
 usage(int exitval, const char *msg)
@@ -144,21 +145,60 @@ usage(int exitval, const char *msg)
 	exit(exitval);
 }
 
+static inline bool
+predictor_wants_pcr(const struct predictor *pred, unsigned int index)
+{
+	return !!(pred->pcr_mask & (1 << index));
+}
+
+static inline tpm_evdigest_t *
+predictor_get_pcr_state(struct predictor *pred, unsigned int index, const char *algo)
+{
+	if (algo && strcasecmp(algo, pred->algo))
+		return NULL;
+
+	if (!predictor_wants_pcr(pred, index))
+		return NULL;
+
+	return &pred->pcr[index];
+}
+
+static void
+pcr_state_update(tpm_evdigest_t *pcr, const EVP_MD *md, const tpm_evdigest_t *d)
+{
+	EVP_MD_CTX *mdctx;
+	unsigned int md_len;
+
+	assert(d->size == pcr->size);
+
+	mdctx = EVP_MD_CTX_new();
+	EVP_DigestInit_ex(mdctx, md, NULL);
+
+	EVP_DigestUpdate(mdctx, pcr->data, pcr->size);
+	EVP_DigestUpdate(mdctx, d->data, d->size);
+
+	EVP_DigestFinal_ex(mdctx, pcr->data, &md_len);
+	assert(pcr->size == md_len);
+
+	EVP_MD_CTX_free(mdctx);
+}
+
 static void
 predictor_init_from_snapshot(struct predictor *pred)
 {
 	const char *efivar_path = "/sys/firmware/efi/vars/GrubPcrSnapshot-" GRUB_PCR_SNAPSHOT_UUID "/data";
 	char linebuf[256];
-	bool found = false;
+	uint32_t found = 0;
 	FILE *fp;
 
-	debug("Trying to find PCR %d in %s\n", pred->index, efivar_path);
+	debug("Trying to find PCR values in %s\n", efivar_path);
 	if (!(fp = fopen(efivar_path, "r")))
 		fatal("Unable to open \"%s\": %m\n", efivar_path);
 
 	while (fgets(linebuf, sizeof(linebuf), fp) != NULL) {
 		unsigned int index;
 		const char *algo, *value;
+		tpm_evdigest_t *pcr;
 		unsigned int len;
 		char *w;
 
@@ -171,30 +211,28 @@ predictor_init_from_snapshot(struct predictor *pred)
 			continue;
 
 		debug("inspecting %u:%s\n", index, algo);
-		if (index != pred->index
-		 || strcasecmp(algo, pred->algo))
+		if ((pcr = predictor_get_pcr_state(pred, index, algo)) == NULL)
 			continue;
 
 		if (!(value = strtok(NULL, " \t\n")))
 			continue;
 
-		len = parse_octet_string(value, pred->md_value, sizeof(pred->md_value));
+		len = parse_octet_string(value, pcr->data, sizeof(pcr->data));
 		if (len == 0)
 			continue;
 
-		if (len == pred->md_size) {
-			found = true;
-			break;
+		if (len == pcr->size) {
+			found |= (1 << index);
+		} else {
+			debug("Found entry for %s:%u, but value has wrong size %u (expected %u)\n",
+				pred->algo, index, len, pcr->size);
 		}
-
-		debug("Found entry for %s:%u, but value has wrong size %u (expected %u)\n",
-				pred->algo, pred->index, len, pred->md_size);
 	}
 
 	fclose(fp);
 
-	if (!found)
-		fatal("Could not find PCR value for %s:%u in %s\n", pred->algo, pred->index, efivar_path);
+	if (pred->pcr_mask != found)
+		fatal("Could not find all required PCR values in %s\n", efivar_path);
 }
 
 static void
@@ -221,20 +259,12 @@ fapi_error(const char *func, int rc)
 }
 
 static void
-predictor_init_state(struct predictor *pred, const unsigned char *md_value, unsigned int md_size)
-{
-	if (pred->md_size != md_size)
-		fatal("Could not initialize predictor for PCR %s:%u: initial hash value has size %u (expected %u)\n",
-				pred->algo, pred->index, (int) md_size, pred->md_size);
-	memcpy(pred->md_value, md_value, md_size);
-}
-
-static void
 predictor_init_from_current(struct predictor *pred)
 {
 	FAPI_CONTEXT *context = NULL;
 	uint8_t *digests[8] = { NULL };
 	size_t digest_sizes[8] = { 0 };
+	unsigned int i;
 	int rc;
 
 	if (strcmp(pred->algo, "sha256"))
@@ -245,28 +275,39 @@ predictor_init_from_current(struct predictor *pred)
 	if (rc != 0)
 		fapi_error("Fapi_Initialize", rc);
 
-	/* FIXME: how does this function select a PCR bank?
-	 * The answer is: it doesn't. The proper way to obtain current
-	 * values for eg sha1 would be to use ESYS_PCR_Read() instead.
-	 */
-	rc = Fapi_PcrRead(context, pred->index, digests, digest_sizes, NULL);
-	if (rc)
-		fapi_error("Fapi_PcrRead", rc);
+	for (i = 0; i < PREDICTOR_PCR_MAX; ++i) {
+		tpm_evdigest_t *pcr;
 
-	predictor_init_state(pred, digests[0], digest_sizes[0]);
+		if (!(pcr = predictor_get_pcr_state(pred, i, "sha256")))
+			continue;
 
-	Fapi_Free(digests[0]);
+		/* FIXME: how does this function select a PCR bank?
+		 * The answer is: it doesn't. The proper way to obtain current
+		 * values for eg sha1 would be to use ESYS_PCR_Read() instead.
+		 */
+		rc = Fapi_PcrRead(context, i, digests, digest_sizes, NULL);
+		if (rc)
+			fapi_error("Fapi_PcrRead", rc);
 
-	debug("Initialized predictor from current PCR%u value\n", pred->index);
+		if (pcr->size != digest_sizes[0])
+			fatal("Could not initialize predictor for PCR %s:%u: initial hash value has size %u (expected %u)\n",
+					pred->algo, i,
+					(int) digest_sizes[0], pcr->size);
+		memcpy(pcr->data, digests[0], pcr->size);
+		Fapi_Free(digests[0]);
+	}
+
+	debug("Initialized predictor from current PCR values\n");
 }
 
 static struct predictor *
-predictor_new(unsigned int index, int from, const char *algo_name, const char *output_format)
+predictor_new(unsigned int pcr_mask, int from, const char *algo_name, const char *output_format)
 {
 	struct predictor *pred;
+	unsigned int i;
 
 	pred = calloc(1, sizeof(*pred));
-	pred->index = index;
+	pred->pcr_mask = pcr_mask;
 	pred->from = from >= 0? from : PREDICT_FROM_ZERO;
 
 	pred->algo = algo_name? : "sha256";
@@ -279,9 +320,15 @@ predictor_new(unsigned int index, int from, const char *algo_name, const char *o
 	pred->algo_info = digest_by_name(pred->algo);
 	if (pred->algo_info == NULL)
 		fatal("Digest algorithm %s not implemented\n");
+	assert(EVP_MD_size(pred->md) == pred->algo_info->digest_size);
 
-	pred->md_size = EVP_MD_size(pred->md);
-	assert(pred->md_size == pred->algo_info->digest_size);
+	debug("Initializing predictor for %s:%s\n", pred->algo, print_pcr_mask(pcr_mask));
+	for (i = 0; i < PREDICTOR_PCR_MAX; ++i) {
+		tpm_evdigest_t *pcr = &pred->pcr[i];
+
+		pcr->size = EVP_MD_size(pred->md);
+		pcr->algo = pred->algo_info;
+	}
 
 	if (!output_format || !strcasecmp(output_format, "plain"))
 		pred->report_fn = predictor_report_plain;
@@ -306,7 +353,7 @@ predictor_new(unsigned int index, int from, const char *algo_name, const char *o
 		predictor_load_eventlog(pred);
 	}
 
-	debug("Created new predictor for %s:%u\n", pred->algo, pred->index);
+	debug("Created new predictor\n");
 	return pred;
 }
 
@@ -354,23 +401,16 @@ predictor_set_stop_event(struct predictor *pred, const char *event_desc, bool af
 }
 
 static void
-predictor_extend_hash(struct predictor *pred, const tpm_evdigest_t *d)
+predictor_extend_hash(struct predictor *pred, unsigned int pcr_index, const tpm_evdigest_t *d)
 {
-	EVP_MD_CTX *mdctx;
-	unsigned int md_len;
+	tpm_evdigest_t *pcr;
 
-	assert(d->size == pred->md_size);
+	if (!(pcr = predictor_get_pcr_state(pred, pcr_index, NULL))) {
+		debug("Ignoring Extend for PCR %s:%u\n", pred->algo, pcr_index);
+		return;
+	}
 
-	mdctx = EVP_MD_CTX_new();
-	EVP_DigestInit_ex(mdctx, pred->md, NULL);
-
-	EVP_DigestUpdate(mdctx, pred->md_value, pred->md_size);
-	EVP_DigestUpdate(mdctx, d->data, d->size);
-
-	EVP_DigestFinal_ex(mdctx, pred->md_value, &md_len);
-	assert(pred->md_size == md_len);
-
-	EVP_MD_CTX_free(mdctx);
+	pcr_state_update(pcr, pred->md, d);
 }
 
 static const tpm_evdigest_t *
@@ -482,7 +522,7 @@ predictor_compute_pecoff_digest(struct predictor *pred, const char *filename)
 }
 
 static const tpm_evdigest_t *
-predictor_compute_efi_file_digest(struct predictor *pred, const char *device_path, const char *file_path)
+predictor_compute_efi_file_digest(struct predictor *pred, unsigned int pcr_index, const char *device_path, const char *file_path)
 {
 	const tpm_evdigest_t *md;
 	char display_path[PATH_MAX];
@@ -491,7 +531,7 @@ predictor_compute_efi_file_digest(struct predictor *pred, const char *device_pat
 	char *dirname;
 
 	snprintf(display_path, sizeof(display_path), "(%s)%s", device_path, file_path);
-	debug("Updating PCR %d with %s\n", pred->index, display_path);
+	debug("Updating PCR %d with %s\n", pcr_index, display_path);
 
 	if (!(dirname = mkdtemp(template)))
 		fatal("Cannot create temporary mount point for EFI partition");
@@ -552,22 +592,22 @@ predictor_compute_efi_variable_digest(struct predictor *pred, tpm_parsed_event_t
 }
 
 static void
-predictor_update_string(struct predictor *pred, const char *value)
+predictor_update_string(struct predictor *pred, unsigned int pcr_index, const char *value)
 {
 	const tpm_evdigest_t *md;
 
-	debug("Extending PCR %u with string \"%s\"\n", pred->index, value);
+	debug("Extending PCR %u with string \"%s\"\n", pcr_index, value);
 	md = predictor_compute_digest(pred, value, strlen(value));
-	predictor_extend_hash(pred, md);
+	predictor_extend_hash(pred, pcr_index, md);
 }
 
 static void
-predictor_update_file(struct predictor *pred, const char *filename)
+predictor_update_file(struct predictor *pred, unsigned int pcr_index, const char *filename)
 {
 	const tpm_evdigest_t *md;
 
 	md = predictor_compute_file_digest(pred, filename, 0);
-	predictor_extend_hash(pred, md);
+	predictor_extend_hash(pred, pcr_index, md);
 }
 
 static const tpm_evdigest_t *
@@ -577,12 +617,14 @@ predictor_compute_boot_services_application(struct predictor *pred, tpm_event_t 
 	tpm_parsed_event_t *parsed;
 
 	if (!(parsed = tpm_event_parse(ev)))
-		fatal("Unable to parse EFI_BOOT_SERVICES_APPLICATION event from TPM log");
+		fatal("Unable to parse EFI_BOOT_SERVICES_APPLICATION event from TPM log\n");
 
-	if (!tpm_efi_bsa_event_extract_location(parsed, efi_partition_p, efi_application_p))
-		fatal("Unable to locate updated boot service application");
+	if (!tpm_efi_bsa_event_extract_location(parsed, efi_partition_p, efi_application_p)) {
+		error("Unable to locate updated boot service application\n");
+		return NULL;
+	}
 
-	return predictor_compute_efi_file_digest(pred, *efi_partition_p, *efi_application_p);
+	return predictor_compute_efi_file_digest(pred, ev->pcr_index, *efi_partition_p, *efi_application_p);
 }
 
 static const tpm_evdigest_t *
@@ -679,6 +721,7 @@ predictor_update_eventlog(struct predictor *pred)
 	tpm_event_t *ev;
 
 	for (ev = pred->event_log; ev; ev = ev->next) {
+		tpm_evdigest_t *pcr;
 		bool stop = false;
 
 		stop = __check_stop_event(ev, pred->stop_event.type, pred->stop_event.value);
@@ -687,7 +730,8 @@ predictor_update_eventlog(struct predictor *pred)
 			break;
 		}
 
-		if (ev->pcr_index == pred->index) {
+		pcr = predictor_get_pcr_state(pred, ev->pcr_index, NULL);
+		if (pcr != NULL) {
 			const tpm_evdigest_t *old_digest, *new_digest;
 			const char *description = NULL;
 
@@ -699,7 +743,6 @@ predictor_update_eventlog(struct predictor *pred)
 
 			switch (ev->event_type) {
 			case TPM2_EFI_BOOT_SERVICES_APPLICATION:
-			case TPM2_EFI_BOOT_SERVICES_DRIVER:
 				new_digest = predictor_compute_boot_services_application(pred, ev, &efi_partition, &efi_application);
 				description = efi_application;
 				break;
@@ -722,6 +765,7 @@ predictor_update_eventlog(struct predictor *pred)
 			case TPM2_EVENT_S_CRTM_CONTENTS:
 			case TPM2_EVENT_S_CRTM_VERSION:
 			case TPM2_EFI_PLATFORM_FIRMWARE_BLOB:
+			case TPM2_EFI_BOOT_SERVICES_DRIVER:
 			case TPM2_EVENT_SEPARATOR:
 			case TPM2_EVENT_POST_CODE:
 			case TPM2_EFI_HANDOFF_TABLES:
@@ -752,7 +796,7 @@ predictor_update_eventlog(struct predictor *pred)
 				}
 			}
 
-			predictor_extend_hash(pred, new_digest);
+			predictor_extend_hash(pred, ev->pcr_index, new_digest);
 		}
 
 		if (stop) {
@@ -765,62 +809,122 @@ predictor_update_eventlog(struct predictor *pred)
 	drop_string(&efi_application);
 }
 
-static void
-predictor_update(struct predictor *pred, const char *type, const char *arg)
+static const char *
+get_next_arg(int *index_p, int argc, char **argv)
 {
-	if (!strcmp(type, "string")) {
-		predictor_update_string(pred, arg);
-	} else
-	if (!strcmp(type, "file")) {
-		predictor_update_file(pred, arg);
-	} else {
-		fprintf(stderr, "Unsupported keyword \"%s\" while trying to update predictor\n", type);
-		usage(1, NULL);
+	int i = *index_p;
+
+	if (i >= argc)
+		usage(1, "Missing argument\n");
+	*index_p += 1;
+	return argv[i];
+}
+
+static void
+predictor_update_all(struct predictor *pred, int argc, char **argv)
+{
+	int i = 0, pcr_index = -1;
+
+	/* If the mask contains exactly one PCR, default pcr_index to that */
+	if (!(pred->pcr_mask & (pred->pcr_mask - 1))) {
+		unsigned int mask = pred->pcr_mask;
+
+		/* integer log2 */
+		for (pcr_index = 0; !(mask & 1); pcr_index++)
+			mask >>= 1;
+	}
+
+	while (i < argc) {
+		const char *type, *arg;
+
+		type = get_next_arg(&i, argc, argv);
+		if (isdigit(*type)) {
+			if (!parse_pcr_index(type, (unsigned int *) &pcr_index))
+				fatal("unable to parse PCR index \"%s\"\n", type);
+			type = get_next_arg(&i, argc, argv);
+		}
+
+		if (!strcmp(type, "eventlog")) {
+			/* do the event log dance */
+			continue;
+		}
+
+		arg = get_next_arg(&i, argc, argv);
+		if (pcr_index < 0) {
+			fprintf(stderr, "Unable to infer which PCR to update for %s %s\n", type, arg);
+			usage(1, NULL);
+		}
+
+		if (!strcmp(type, "string")) {
+			predictor_update_string(pred, pcr_index, arg);
+		} else
+		if (!strcmp(type, "file")) {
+			predictor_update_file(pred, pcr_index, arg);
+		} else {
+			fprintf(stderr, "Unsupported keyword \"%s\" while trying to update predictor\n", type);
+			usage(1, NULL);
+		}
 	}
 }
 
 static void
 predictor_report(struct predictor *pred)
 {
+	unsigned int pcr_index;
+
 	if (pred->from == PREDICT_FROM_EVENTLOG)
 		predictor_update_eventlog(pred);
 
-	pred->report_fn(pred);
+	for (pcr_index = 0; pcr_index < PREDICTOR_PCR_MAX; ++pcr_index) {
+		pred->report_fn(pred, pcr_index);
+	}
 }
 
 static void
-predictor_report_plain(struct predictor *pred)
+predictor_report_plain(struct predictor *pred, unsigned int pcr_index)
 {
 	unsigned int i;
+	tpm_evdigest_t *pcr;
 
-	/* printf("%s:%u ", pred->algo, pred->index); */
-	for (i = 0; i < pred->md_size; i++)
-		printf("%02x", pred->md_value[i]);
+	if (!(pcr = predictor_get_pcr_state(pred, pcr_index, NULL)))
+		return;
+
+	printf("%s:%u ", pred->algo, pcr_index);
+	for (i = 0; i < pcr->size; i++)
+		printf("%02x", pcr->data[i]);
 	printf("\n");
 }
 
 static void
-predictor_report_tpm2_tools(struct predictor *pred)
+predictor_report_tpm2_tools(struct predictor *pred, unsigned int pcr_index)
 {
 	unsigned int i;
+	tpm_evdigest_t *pcr;
 
-	printf("  %-2d: 0x", pred->index);
-	for (i = 0; i < pred->md_size; i++)
-		printf("%02X", pred->md_value[i]);
+	if (!(pcr = predictor_get_pcr_state(pred, pcr_index, NULL)))
+		return;
+
+	printf("  %-2d: 0x", pcr_index);
+	for (i = 0; i < pcr->size; i++)
+		printf("%02X", pcr->data[i]);
 	printf("\n");
 }
 
 static void
-predictor_report_binary(struct predictor *pred)
+predictor_report_binary(struct predictor *pred, unsigned int pcr_index)
 {
-	if (fwrite(pred->md_value, pred->md_size, 1, stdout) != 1)
+	tpm_evdigest_t *pcr;
+
+	if (!(pcr = predictor_get_pcr_state(pred, pcr_index, NULL)))
+		return;
+	if (fwrite(pcr->data, pcr->size, 1, stdout) != 1)
 		fatal("failed to write hash to stdout");
 }
 
 int
 main(int argc, char **argv)
 {
-	unsigned int pcr_index;
+	unsigned int pcr_mask;
 	struct predictor *pred;
 	int opt_from = -1;
 	char *opt_algo = NULL;
@@ -874,20 +978,18 @@ main(int argc, char **argv)
 	if (optind + 1 > argc)
 		usage(1, "Expected PCR index as argument");
 
-	if (!parse_pcr_index(argv[optind++], &pcr_index))
+	if (!parse_pcr_mask(argv[optind++], &pcr_mask))
 		usage(1, "Bad value for PCR argument");
 
 	if (opt_stop_event && opt_from != PREDICT_FROM_EVENTLOG)
 		usage(1, "--stop-event only makes sense when using event log");
 
-	pred = predictor_new(pcr_index, opt_from, opt_algo, opt_output_format);
+	pred = predictor_new(pcr_mask, opt_from, opt_algo, opt_output_format);
 
 	if (opt_stop_event)
 		predictor_set_stop_event(pred, opt_stop_event, !opt_stop_before);
 
-	for (; optind + 1 < argc; optind += 2) {
-		predictor_update(pred, argv[optind], argv[optind + 1]);
-	}
+	predictor_update_all(pred, argc - optind, argv + optind);
 
 	predictor_report(pred);
 
