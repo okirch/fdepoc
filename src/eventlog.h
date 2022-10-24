@@ -224,7 +224,8 @@ extern struct buffer *		tpm_parsed_event_rebuild(tpm_parsed_event_t *, const voi
 
 struct buffer; /* fwd decl */
 
-/* Device path related helper functions */
+/* helper functions for parsing events */
+extern bool			__tpm_event_parse_efi_variable(tpm_event_t *, tpm_parsed_event_t *, struct buffer *);
 extern bool			__tpm_event_parse_efi_device_path(efi_device_path_t *, struct buffer *);
 extern void			__tpm_event_efi_device_path_print(const efi_device_path_t *path,
 					tpm_event_bit_printer *print_fn);
@@ -232,5 +233,6 @@ extern void			__tpm_event_efi_device_path_destroy(efi_device_path_t *path);
 extern const char *		__tpm_event_efi_device_path_item_harddisk_uuid(const struct efi_device_path_item *);
 extern const char *		__tpm_event_efi_device_path_item_file_path(const struct efi_device_path_item *);
 
+extern const char *		tpm_event_decode_uuid(const unsigned char *data);
 
 #endif /* EVENTLOG_H */
