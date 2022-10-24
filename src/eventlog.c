@@ -638,6 +638,162 @@ tpm_efi_bsa_event_extract_location(tpm_parsed_event_t *parsed, char **dev_ret, c
 	return *dev_ret && *path_ret;
 }
 
+/*
+ * Handle IPL events, which grub2 uses to hide its stuff in
+ */
+static void
+__tpm_event_grub_file_destroy(tpm_parsed_event_t *parsed)
+{
+	drop_string(&parsed->grub_file.device);
+	drop_string(&parsed->grub_file.path);
+}
+
+static void
+__tpm_event_grub_file_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *print_fn)
+{
+	if (parsed->grub_file.device == NULL)
+		print_fn("  grub2 file load from %s\n", parsed->grub_file.path);
+	else
+		print_fn("  grub2 file load from (%s)%s\n", parsed->grub_file.device, parsed->grub_file.path);
+}
+
+static buffer_t *
+__tpm_event_grub_file_rebuild(const tpm_parsed_event_t *parsed, const void *raw_data, unsigned int raw_data_len)
+{
+	return NULL;
+}
+
+/*
+ * For files residing on the EFI partition, grub usually formats these as
+ * (hdX,gptY)/EFI/BOOT/some.file
+ * Once it has determined the final root device, the device part will be
+ * omitted (eg for kernel and initrd).
+ */
+static bool
+__tpm_event_grub_file_event_parse(tpm_event_t *ev, tpm_parsed_event_t *parsed, const char *value)
+{
+	if (value[0] == '/') {
+		parsed->grub_file.device = NULL;
+		parsed->grub_file.path = strdup(value);
+	} else if (value[0] == '(') {
+		char *copy = strdup(value);
+		char *path;
+
+		if ((path = strchr(copy, ')')) == NULL) {
+			free(copy);
+			return false;
+		}
+
+		*path++ = '\0';
+
+		parsed->grub_file.device = strdup(copy + 1);
+		parsed->grub_file.path = strdup(path);
+		free(copy);
+	} else {
+		return false;
+	}
+
+	parsed->event_subtype = GRUB_EVENT_FILE;
+	parsed->destroy = __tpm_event_grub_file_destroy;
+	parsed->print = __tpm_event_grub_file_print;
+	parsed->rebuild = __tpm_event_grub_file_rebuild;
+
+	return true;
+}
+
+static void
+__tpm_event_grub_command_destroy(tpm_parsed_event_t *parsed)
+{
+	int argc;
+
+	drop_string(&parsed->grub_command.string);
+	for (argc = 0; argc < GRUB_COMMAND_ARGV_MAX; argc++)
+		drop_string(&parsed->grub_command.argv[argc]);
+}
+
+static void
+__tpm_event_grub_command_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *print_fn)
+{
+	if (parsed->event_subtype == GRUB_EVENT_COMMAND)
+		print_fn("  grub2 command \"%s\"\n", parsed->grub_command.string);
+	else
+		print_fn("  grub2 kernel cmdline \"%s\"\n", parsed->grub_command.string);
+}
+
+/*
+ * This event holds stuff like
+ *  grub_cmd: ....
+ *  kernel_cmdline: ...
+ */
+static bool
+__tpm_event_grub_command_event_parse(tpm_event_t *ev, tpm_parsed_event_t *parsed, const char *value)
+{
+	unsigned int wordlen;
+	char *copy, *keyword, *arg, *s, cc;
+	int argc;
+
+	/* clear argv */
+	memset(&parsed->grub_command, 0, sizeof(parsed->grub_command));
+
+	for (wordlen = 0; (cc = value[wordlen]) && (isalpha(cc) || cc == '_'); ++wordlen)
+		;
+
+	if (value[wordlen] != ':' || value[wordlen + 1] != ' ')
+		return false;
+
+	copy = strdup(value);
+	copy[wordlen++] = '\0';
+	copy[wordlen++] = '\0';
+
+	keyword = copy;
+	arg = copy + wordlen;
+
+	if (!strcmp(keyword, "grub_cmd")) {
+		parsed->event_subtype = GRUB_EVENT_COMMAND;
+	} else
+	if (!strcmp(keyword, "kernel_cmdline")) {
+		parsed->event_subtype = GRUB_EVENT_KERNEL_CMDLINE;
+	} else {
+		free(copy);
+		return false;
+	}
+
+	parsed->grub_command.string = strdup(arg);
+	for (argc = 0, s = strtok(arg, " \t"); s && argc < GRUB_COMMAND_ARGV_MAX - 1; s = strtok(NULL, " \t")) {
+		parsed->grub_command.argv[argc++] = strdup(s);
+		parsed->grub_command.argv[argc] = NULL;
+	}
+
+	parsed->destroy = __tpm_event_grub_command_destroy;
+	parsed->print = __tpm_event_grub_command_print;
+
+	free(copy);
+	return true;
+}
+
+
+static bool
+__tpm_event_parse_ipl(tpm_event_t *ev, tpm_parsed_event_t *parsed, buffer_t *bp)
+{
+	const char *value = (const char *) ev->event_data;
+	unsigned int len = ev->event_size;
+
+	if (len == 0 || *value == '\0')
+		return false;
+
+	/* ATM, grub2 records the string including its trailing NUL byte */
+	if (value[len - 1] != '\0')
+		return false;
+
+	if (ev->pcr_index == 8)
+		return __tpm_event_grub_command_event_parse(ev, parsed, value);
+
+	if (ev->pcr_index == 9)
+		return __tpm_event_grub_file_event_parse(ev, parsed, value);
+
+	return false;
+}
+
 static bool
 __tpm_event_parse(tpm_event_t *ev, tpm_parsed_event_t *parsed)
 {
@@ -646,6 +802,9 @@ __tpm_event_parse(tpm_event_t *ev, tpm_parsed_event_t *parsed)
 	buffer_init_read(&buf, ev->event_data, ev->event_size);
 
 	switch (ev->event_type) {
+	case TPM2_EVENT_IPL:
+		return __tpm_event_parse_ipl(ev, parsed, &buf);
+
 	case TPM2_EFI_VARIABLE_AUTHORITY:
 	case TPM2_EFI_VARIABLE_BOOT:
 	case TPM2_EFI_VARIABLE_DRIVER_CONFIG:

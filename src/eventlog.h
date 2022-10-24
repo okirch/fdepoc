@@ -82,6 +82,13 @@ enum {
 	TPM2_EFI_SPDM_FIRMWARE_CONFIG        = 0x800000E2,
 };
 
+enum {
+	/* IPL subtypes for grub */
+	GRUB_EVENT_COMMAND		     = 0x0001,
+	GRUB_EVENT_FILE			     = 0x0002,
+	GRUB_EVENT_KERNEL_CMDLINE	     = 0x0003,
+};
+
 #define EFI_DEVICE_PATH_MAX		16
 
 typedef struct efi_device_path {
@@ -157,11 +164,14 @@ enum {
 	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_EMMC		= 0x1D,
 };
 
+#define GRUB_COMMAND_ARGV_MAX	32
+
 /*
  * Parsed event types
  */
 typedef struct tpm_parsed_event {
 	unsigned int		event_type;
+	unsigned int		event_subtype;		/* for grub command, grub file, which are encoded as IPL events */
 	void			(*destroy)(struct tpm_parsed_event *);
 	void			(*print)(struct tpm_parsed_event *, tpm_event_bit_printer *);
 	struct buffer *		(*rebuild)(const struct tpm_parsed_event *, const void *raw_data, unsigned int raw_data_len);
@@ -181,6 +191,17 @@ typedef struct tpm_parsed_event {
 
 			efi_device_path_t device_path;
 		} efi_bsa_event;
+
+		/* for GRUB_COMMAND, GRUB_KERNEL_CMDLINE */
+		struct {
+			char *		string;
+			char *		argv[GRUB_COMMAND_ARGV_MAX];
+		} grub_command;
+
+		struct {
+			char *		device;
+			char *		path;
+		} grub_file;
 	};
 } tpm_parsed_event_t;
 
