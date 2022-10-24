@@ -42,6 +42,12 @@ enum {
 	PREDICT_FROM_EVENTLOG,
 };
 
+enum {
+	STOP_EVENT_NONE,
+	STOP_EVENT_GRUB_COMMAND,
+	STOP_EVENT_GRUB_FILE,
+};
+
 struct predictor {
 	unsigned int		index;
 	int			from;
@@ -51,6 +57,11 @@ struct predictor {
 	const EVP_MD *		md;
 
 	tpm_event_t *		event_log;
+	struct {
+		int		type;
+		bool		after;
+		char *		value;
+	} stop_event;
 
 	void			(*report_fn)(struct predictor *);
 
@@ -62,6 +73,9 @@ struct predictor {
 
 enum {
 	OPT_USE_PESIGN = 256,
+	OPT_STOP_EVENT,
+	OPT_AFTER,
+	OPT_BEFORE,
 };
 
 static struct option options[] = {
@@ -71,6 +85,9 @@ static struct option options[] = {
 	{ "from-eventlog",	no_argument,		0,	'L' },
 	{ "algorithm",		required_argument,	0,	'A' },
 	{ "format",		required_argument,	0,	'F' },
+	{ "stop-event",		required_argument,	0,	OPT_STOP_EVENT },
+	{ "after",		no_argument,		0,	OPT_AFTER },
+	{ "before",		no_argument,		0,	OPT_BEFORE },
 	{ "use-pesign",		no_argument,		0,	OPT_USE_PESIGN },
 
 	{ NULL }
@@ -106,11 +123,21 @@ usage(int exitval, const char *msg)
 		"                         output string is formatted to resemble the output of tpm2_pcrread.\n"
 		"                         Finally, \"binary\" writes our the raw binary data so that it can be consumed\n"
 		"                         tpm2_policypcr.\n"
+		"  --stop-event TYPE=ARG\n"
+		"                         During eventlog based prediction, stop processing the event log at the indicated\n"
+		"                         event. Event TYPE can be one of grub-command, grub-file.\n"
+		"                         The meaning of event ARG depends on the type. Possible examples are\n"
+		"                         grub-command=cryptomount or grub-file=grub.cfg\n"
+		"  --after, --before\n"
+		"                         The default behavior when using --stop-event is to stop processing the\n"
+		"                         event log before the indicated event. Using the --after option instructs\n"
+		"                         pcr-oracle to stop after processing the event.\n"
 		"\n"
 		"The PCR index can be followed by zero or more pairs of data describing how to extend the PCR.\n"
 		"Each pair is a type, and and argument. These types are currently recognized:\n"
 		"  string                 The PCR is extended with the string argument.\n"
 		"  file                   The argument is taken as a file name. The PCR is extended with the file's content.\n"
+		"  eventlog               Process the eventlog and apply updates for all events possible.\n"
 		"\n"
 		"After the PCR predictor has been extended with all updates specified, its value is printed to standard output.\n"
 	       );
@@ -281,6 +308,49 @@ predictor_new(unsigned int index, int from, const char *algo_name, const char *o
 
 	debug("Created new predictor for %s:%u\n", pred->algo, pred->index);
 	return pred;
+}
+
+static bool
+__stop_event_parse(char *event_spec, char **name_p, char **value_p)
+{
+	char *s;
+
+	if (!(s = strchr(event_spec, '='))) {
+		*name_p = event_spec;
+		*value_p = NULL;
+		return true;
+	}
+
+	*s++ = '\0';
+	if (*event_spec == '\0')
+		return false;
+
+	*name_p = event_spec;
+	*value_p = s;
+	return true;
+}
+
+static void
+predictor_set_stop_event(struct predictor *pred, const char *event_desc, bool after)
+{
+	char *copy, *name, *value;
+
+	copy = strdup(event_desc);
+	if (!__stop_event_parse(copy, &name, &value))
+		fatal("Cannot parse stop event \"%s\"\n", event_desc);
+
+	if (!strcmp(name, "grub-command")) {
+		pred->stop_event.type = STOP_EVENT_GRUB_COMMAND;
+	} else
+	if (!strcmp(name, "grub-file")) {
+		pred->stop_event.type = STOP_EVENT_GRUB_FILE;
+	} else {
+		fatal("Unsupported event type \"%s\" in stop event \"%s\"\n", name, event_desc);
+	}
+
+	pred->stop_event.value = strdup(value);
+	pred->stop_event.after = after;
+	free(copy);
 }
 
 static void
@@ -544,6 +614,64 @@ predictor_compute_efi_variable(struct predictor *pred, tpm_event_t *ev, const ch
 	return md;
 }
 
+static bool
+__check_stop_event(tpm_event_t *ev, int type, const char *value)
+{
+	const char *grub_arg = NULL;
+	tpm_parsed_event_t *parsed;
+
+	switch (type) {
+	case STOP_EVENT_NONE:
+		return false;
+
+	case STOP_EVENT_GRUB_COMMAND:
+		if (ev->pcr_index != 8
+		 || ev->event_type != TPM2_EVENT_IPL)
+			return false;
+
+		if (!(parsed = tpm_event_parse(ev)))
+			return false;
+
+		if (parsed->event_subtype != GRUB_EVENT_COMMAND)
+			return false;
+
+		if (!(grub_arg = parsed->grub_command.argv[0]))
+			return false;
+
+		return !strcmp(grub_arg, value);
+
+	case STOP_EVENT_GRUB_FILE:
+		if (ev->pcr_index != 9
+		 || ev->event_type != TPM2_EVENT_IPL)
+			return false;
+
+		if (!(parsed = tpm_event_parse(ev)))
+			return false;
+
+		if (parsed->event_subtype != GRUB_EVENT_FILE)
+			return false;
+
+		if (!(grub_arg = parsed->grub_file.path)) {
+			return false;
+		} else {
+			unsigned int match_len = strlen(value);
+			unsigned int path_len = strlen(grub_arg);
+
+			if (path_len > match_len
+			 && grub_arg[path_len - match_len - 1] == '/'
+			 && !strcmp(value, grub_arg + path_len - match_len)) {
+				debug("grub file path \"%s\" matched \"%s\"\n",
+						grub_arg, value);
+				return true;
+			}
+		}
+
+		return !strcmp(grub_arg, value);
+	}
+
+	return false;
+}
+
 static void
 predictor_update_eventlog(struct predictor *pred)
 {
@@ -551,6 +679,14 @@ predictor_update_eventlog(struct predictor *pred)
 	tpm_event_t *ev;
 
 	for (ev = pred->event_log; ev; ev = ev->next) {
+		bool stop = false;
+
+		stop = __check_stop_event(ev, pred->stop_event.type, pred->stop_event.value);
+		if (stop && !pred->stop_event.after) {
+			debug("Stopped processing event log before indicated event\n");
+			break;
+		}
+
 		if (ev->pcr_index == pred->index) {
 			const tpm_evdigest_t *old_digest, *new_digest;
 			const char *description = NULL;
@@ -618,6 +754,11 @@ predictor_update_eventlog(struct predictor *pred)
 
 			predictor_extend_hash(pred, new_digest);
 		}
+
+		if (stop) {
+			debug("Stopped processing event log after indicated event\n");
+			break;
+		}
 	}
 
 	drop_string(&efi_partition);
@@ -684,6 +825,8 @@ main(int argc, char **argv)
 	int opt_from = -1;
 	char *opt_algo = NULL;
 	char *opt_output_format = NULL;
+	char *opt_stop_event = NULL;
+	bool opt_stop_before = true;
 	int c;
 
 	while ((c = getopt_long(argc, argv, "dhA:CF:LSZ", options, NULL)) != EOF) {
@@ -712,6 +855,15 @@ main(int argc, char **argv)
 		case OPT_USE_PESIGN:
 			opt_use_pesign = 1;
 			break;
+		case OPT_STOP_EVENT:
+			opt_stop_event = optarg;
+			break;
+		case OPT_AFTER:
+			opt_stop_before = false;
+			break;
+		case OPT_BEFORE:
+			opt_stop_before = true;
+			break;
 		case 'h':
 			usage(0, NULL);
 		default:
@@ -725,7 +877,13 @@ main(int argc, char **argv)
 	if (!parse_pcr_index(argv[optind++], &pcr_index))
 		usage(1, "Bad value for PCR argument");
 
+	if (opt_stop_event && opt_from != PREDICT_FROM_EVENTLOG)
+		usage(1, "--stop-event only makes sense when using event log");
+
 	pred = predictor_new(pcr_index, opt_from, opt_algo, opt_output_format);
+
+	if (opt_stop_event)
+		predictor_set_stop_event(pred, opt_stop_event, !opt_stop_before);
 
 	for (; optind + 1 < argc; optind += 2) {
 		predictor_update(pred, argv[optind], argv[optind + 1]);
