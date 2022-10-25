@@ -204,6 +204,10 @@ typedef struct tpm_parsed_event {
 			size_t		image_lt_address;
 
 			efi_device_path_t device_path;
+
+			/* extracted from device_path: */
+			char *		efi_partition;
+			char *		efi_application;
 		} efi_bsa_event;
 
 		/* for GRUB_COMMAND, GRUB_KERNEL_CMDLINE */

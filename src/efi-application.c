@@ -44,13 +44,16 @@
  * Process EFI Boot Service Application events
  */
 static const tpm_evdigest_t *	__tpm_event_efi_bsa_rehash(const tpm_event_t *, const tpm_parsed_event_t *, tpm_event_log_rehash_ctx_t *);
-static bool			__tpm_event_efi_bsa_extract_location(const tpm_parsed_event_t *parsed, char **dev_ret, char **path_ret);
+static bool			__tpm_event_efi_bsa_extract_location(tpm_parsed_event_t *parsed);
 
 
 static void
 __tpm_event_efi_bsa_destroy(tpm_parsed_event_t *parsed)
 {
 	__tpm_event_efi_device_path_destroy(&parsed->efi_bsa_event.device_path);
+
+	drop_string(&parsed->efi_bsa_event.efi_partition);
+	drop_string(&parsed->efi_bsa_event.efi_application);
 }
 
 static void
@@ -71,19 +74,15 @@ static const char *
 __tpm_event_efi_bsa_describe(const tpm_parsed_event_t *parsed)
 {
 	static char buffer[1024];
-	char *efi_device = NULL, *efi_application = NULL;
 	char *result;
 
-	(void) __tpm_event_efi_bsa_extract_location(parsed, &efi_device, &efi_application);
-	if (efi_application) {
-		snprintf(buffer, sizeof(buffer), "EFI Boot Service Application %s", efi_application);
+	if (parsed->efi_bsa_event.efi_application) {
+		snprintf(buffer, sizeof(buffer), "EFI Boot Service Application %s", parsed->efi_bsa_event.efi_application);
 		result = buffer;
 	} else {
 		result = "EFI Boot Service Application";
 	}
 
-	drop_string(&efi_device);
-	drop_string(&efi_application);
 	return result;
 }
 
@@ -108,20 +107,18 @@ __tpm_event_parse_efi_bsa(tpm_event_t *ev, tpm_parsed_event_t *parsed, buffer_t 
 	if (!__tpm_event_parse_efi_device_path(&parsed->efi_bsa_event.device_path, &path_buf))
 		return false;
 
+	__tpm_event_efi_bsa_extract_location(parsed);
+
 	return true;
 }
 
 bool
-__tpm_event_efi_bsa_extract_location(const tpm_parsed_event_t *parsed, char **dev_ret, char **path_ret)
+__tpm_event_efi_bsa_extract_location(tpm_parsed_event_t *parsed)
 {
+	struct efi_bsa_event *evspec = &parsed->efi_bsa_event;
 	const struct efi_device_path *efi_path;
 	const struct efi_device_path_item *item;
 	unsigned int i;
-
-	if (parsed->event_type != TPM2_EFI_BOOT_SERVICES_APPLICATION)
-		return false;
-
-	drop_string(path_ret);
 
 	efi_path = &parsed->efi_bsa_event.device_path;
 	for (i = 0, item = efi_path->entries; i < efi_path->count; ++i, ++item) {
@@ -131,22 +128,23 @@ __tpm_event_efi_bsa_extract_location(const tpm_parsed_event_t *parsed, char **de
 		if ((uuid = __tpm_event_efi_device_path_item_harddisk_uuid(item)) != NULL) {
 			char *dev_path;
 
+			/* FIXME: should go to runtime.c */
 			snprintf(pathbuf, sizeof(pathbuf), "/dev/disk/by-partuuid/%s", uuid);
 			if ((dev_path = realpath(pathbuf, NULL)) == NULL) {
 				error("Cannot find device for partition with uuid %s\n", uuid);
 				return false;
 			}
 
-			drop_string(dev_ret);
-			*dev_ret = dev_path;
+			drop_string(&evspec->efi_partition);
+			evspec->efi_partition = dev_path;
 		}
 
 		if ((filepath = __tpm_event_efi_device_path_item_file_path(item)) != NULL) {
-			assign_string(path_ret, filepath);
+			assign_string(&evspec->efi_application, filepath);
 		}
 	}
 
-	return *dev_ret && *path_ret;
+	return true;
 }
 
 static const tpm_evdigest_t *
@@ -247,18 +245,19 @@ __efi_application_rehash(tpm_event_log_rehash_ctx_t *ctx, const char *device_pat
 static const tpm_evdigest_t *
 __tpm_event_efi_bsa_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, tpm_event_log_rehash_ctx_t *ctx)
 {
-	char *efi_application = NULL;
-	const tpm_evdigest_t *md;
+	const struct efi_bsa_event *evspec = &parsed->efi_bsa_event;
 
-	if (!__tpm_event_efi_bsa_extract_location(parsed, &ctx->efi_partition, &efi_application)) {
+	if (evspec->efi_partition)
+		assign_string(&ctx->efi_partition, evspec->efi_partition);
+
+	/* Some BSA events do not refer to files, but to some data blobs residing somewhere on a device.
+	 * We're not yet prepared to handle these, so we hope the user doesn't mess with them, and
+	 * return the original digest from the event log.
+	 */
+	if (!evspec->efi_application) {
 		debug("Unable to locate boot service application - probably not a file\n");
-		/* return the original digest from the event log */
 		return tpm_event_get_digest(ev, ctx->algo->openssl_name);
 	}
 
-	md = __efi_application_rehash(ctx, ctx->efi_partition, efi_application);
-
-	drop_string(&efi_application);
-	return md;
+	return __efi_application_rehash(ctx, ctx->efi_partition, evspec->efi_application);
 }
-
