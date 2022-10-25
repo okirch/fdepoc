@@ -127,6 +127,31 @@ digest_print_value(const tpm_evdigest_t *md)
 	return buffer;
 }
 
+const tpm_evdigest_t *
+digest_compute(const tpm_algo_info_t *algo_info, const void *data, unsigned int size)
+{
+	static tpm_evdigest_t md;
+	digest_ctx_t *ctx;
+
+	memset(&md, 0, sizeof(md));
+	ctx = digest_ctx_new(algo_info);
+	if (ctx == NULL)
+		return NULL;
+
+	digest_ctx_update(ctx, data, size);
+	if (!digest_ctx_final(ctx, &md))
+		return NULL;
+
+	digest_ctx_free(ctx);
+	return &md;
+}
+
+bool
+digest_equal(const tpm_evdigest_t *a, const tpm_evdigest_t *b)
+{
+	return a->algo == b->algo && a->size == b->size && !memcmp(a->data, b->data, a->size);
+}
+
 struct digest_ctx {
 	EVP_MD_CTX *	mdctx;
 

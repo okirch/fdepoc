@@ -23,6 +23,7 @@
 #define DIGEST_H
 
 #include <openssl/evp.h>
+#include <stdbool.h>
 
 typedef struct tpm_algo_info {
 	unsigned int		tcg_id;
@@ -43,11 +44,13 @@ extern const tpm_algo_info_t *	digest_by_name(const char *name);
 extern const char *		digest_print(const tpm_evdigest_t *);
 extern const char *		digest_print_value(const tpm_evdigest_t *);
 extern const char *		digest_algo_name(const tpm_evdigest_t *);
+extern bool			digest_equal(const tpm_evdigest_t *a, const tpm_evdigest_t *b);
 
 extern digest_ctx_t *		digest_ctx_new(const tpm_algo_info_t *);
 extern void			digest_ctx_update(digest_ctx_t *, const void *, unsigned int);
 extern tpm_evdigest_t *		digest_ctx_final(digest_ctx_t *, tpm_evdigest_t *);
 extern void			digest_ctx_free(digest_ctx_t *);
+extern const tpm_evdigest_t *	digest_compute(const tpm_algo_info_t *, const void *, unsigned int);
 
 extern const tpm_algo_info_t *	__digest_by_tpm_alg(unsigned int, const tpm_algo_info_t *, unsigned int);
 
