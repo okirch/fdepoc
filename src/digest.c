@@ -31,6 +31,7 @@
 
 #include "util.h"
 #include "eventlog.h"
+#include "runtime.h"
 
 enum {
 	__TPM2_ALG_sha1 = 4,
@@ -145,6 +146,23 @@ digest_compute(const tpm_algo_info_t *algo_info, const void *data, unsigned int 
 	digest_ctx_free(ctx);
 	return &md;
 }
+
+const tpm_evdigest_t *
+digest_from_file(const tpm_algo_info_t *algo_info, const char *filename, int flags)
+{
+	const tpm_evdigest_t *md;
+	buffer_t *buffer;
+
+	buffer = runtime_read_file(filename, flags);
+
+	md = digest_compute(algo_info,
+			buffer_read_pointer(buffer),
+			buffer_available(buffer));
+	buffer_free(buffer);
+
+	return md;
+}
+
 
 bool
 digest_equal(const tpm_evdigest_t *a, const tpm_evdigest_t *b)

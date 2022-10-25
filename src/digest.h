@@ -51,6 +51,7 @@ extern void			digest_ctx_update(digest_ctx_t *, const void *, unsigned int);
 extern tpm_evdigest_t *		digest_ctx_final(digest_ctx_t *, tpm_evdigest_t *);
 extern void			digest_ctx_free(digest_ctx_t *);
 extern const tpm_evdigest_t *	digest_compute(const tpm_algo_info_t *, const void *, unsigned int);
+extern const tpm_evdigest_t *	digest_from_file(const tpm_algo_info_t *algo_info, const char *filename, int flags);
 
 extern const tpm_algo_info_t *	__digest_by_tpm_alg(unsigned int, const tpm_algo_info_t *, unsigned int);
 
