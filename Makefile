@@ -12,6 +12,7 @@ ORACLE_SRCS	= oracle.c \
 		  efi-devpath.c \
 		  efi-variable.c \
 		  efi-application.c \
+		  efi-gpt.c \
 		  digest.c \
 		  runtime.c \
 		  authenticode.c \

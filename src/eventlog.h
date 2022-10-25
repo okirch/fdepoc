@@ -220,6 +220,10 @@ typedef struct tpm_parsed_event {
 			char *		device;
 			char *		path;
 		} grub_file;
+
+		struct efi_gpt_event {
+			char *		disk_device;
+		} efi_gpt_event;
 	};
 } tpm_parsed_event_t;
 
@@ -248,6 +252,7 @@ struct buffer; /* fwd decl */
 /* helper functions for parsing events */
 extern bool			__tpm_event_parse_efi_variable(tpm_event_t *, tpm_parsed_event_t *, struct buffer *);
 extern bool			__tpm_event_parse_efi_bsa(tpm_event_t *, tpm_parsed_event_t *, struct buffer *);
+extern bool			__tpm_event_parse_efi_gpt(tpm_event_t *, tpm_parsed_event_t *, struct buffer *);
 extern bool			__tpm_event_parse_efi_device_path(efi_device_path_t *, struct buffer *);
 extern void			__tpm_event_efi_device_path_print(const efi_device_path_t *path,
 					tpm_event_bit_printer *print_fn);

@@ -701,6 +701,9 @@ __tpm_event_parse(tpm_event_t *ev, tpm_parsed_event_t *parsed)
 	case TPM2_EFI_BOOT_SERVICES_APPLICATION:
 	case TPM2_EFI_BOOT_SERVICES_DRIVER:
 		return __tpm_event_parse_efi_bsa(ev, parsed, &buf);
+
+	case TPM2_EFI_GPT_EVENT:
+		return __tpm_event_parse_efi_gpt(ev, parsed, &buf);
 	}
 
 	return false;

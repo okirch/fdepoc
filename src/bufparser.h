@@ -207,6 +207,12 @@ buffer_free(buffer_t *bp)
 	free(bp);
 }
 
+static inline void *
+buffer_write_pointer(const buffer_t *bp)
+{
+	return bp->data + bp->wpos;
+}
+
 static inline unsigned int
 buffer_tailroom(const buffer_t *bp)
 {

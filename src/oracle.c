@@ -511,6 +511,25 @@ __check_stop_event(tpm_event_t *ev, int type, const char *value)
 	return false;
 }
 
+/*
+ * Scan ahead to the next event of the indicated type.
+ */
+static void
+__predictor_lookahead_efi_partition(tpm_event_t *ev, tpm_event_log_rehash_ctx_t *ctx)
+{
+	while ((ev = ev->next) != NULL) {
+		tpm_parsed_event_t *parsed;
+
+		if (ev->event_type != TPM2_EFI_BOOT_SERVICES_APPLICATION)
+			continue;
+		if (!(parsed = tpm_event_parse(ev)))
+			continue;
+
+		assign_string(&ctx->efi_partition, parsed->efi_bsa_event.efi_partition);
+		return;
+	}
+}
+
 static void
 predictor_update_eventlog(struct predictor *pred)
 {
@@ -555,13 +574,30 @@ predictor_update_eventlog(struct predictor *pred)
 				}
 			}
 
+			/* By the time we encounter the GPT event, we usually haven't seen any
+			 * BOOT_SERVICES event that would tell us which partition we're booting
+			 * from.
+			 * Scan ahead to the first BSA event to extract the EFI partition.
+			 */
+			if (ev->event_type == TPM2_EFI_GPT_EVENT && rehash_ctx.efi_partition == NULL)
+				__predictor_lookahead_efi_partition(ev, &rehash_ctx);
+
 			switch (ev->event_type) {
 			case TPM2_EFI_BOOT_SERVICES_APPLICATION:
 			case TPM2_EFI_BOOT_SERVICES_DRIVER:
 			case TPM2_EFI_VARIABLE_BOOT:
 			case TPM2_EFI_VARIABLE_AUTHORITY:
 			case TPM2_EFI_VARIABLE_DRIVER_CONFIG:
-			case TPM2_EVENT_IPL:			/* used by grub2 for PCR 8 and PCR9 */
+
+			/* IPL: used by grub2 for PCR 8 and PCR9 */
+			case TPM2_EVENT_IPL:
+
+			/*
+			 * EFI_GPT_EVENT: used in updates of PCR5, seems to be a hash of several GPT headers.
+			 *	We should probably rebuild in case someone changed the partitioning.
+			 *	However, not needed as long as we don't seal against PCR5.
+			 */
+			case TPM2_EFI_GPT_EVENT:
 				if (!(parsed = tpm_event_parse(ev)))
 					fatal("Unable to parse %s event from TPM log\n", tpm_event_type_to_string(ev->event_type));
 
@@ -569,20 +605,16 @@ predictor_update_eventlog(struct predictor *pred)
 				description = tpm_parsed_event_describe(parsed);
 				break;
 
-			/* Probably needs to be done:
-			 * EFI_GPT_EVENT: used in updates of PCR5, seems to be a hash of several GPT headers.
-			 *	We should probably rebuild in case someone changed the partitioning.
-			 *	However, not needed as long as we don't seal against PCR5.
-			 */
 
 			case TPM2_EVENT_NO_ACTION:
 			case TPM2_EVENT_S_CRTM_CONTENTS:
 			case TPM2_EVENT_S_CRTM_VERSION:
 			case TPM2_EFI_PLATFORM_FIRMWARE_BLOB:
+			case TPM2_EFI_PLATFORM_FIRMWARE_BLOB2:
 			case TPM2_EVENT_SEPARATOR:
 			case TPM2_EVENT_POST_CODE:
 			case TPM2_EFI_HANDOFF_TABLES:
-			case TPM2_EFI_GPT_EVENT:
+			case TPM2_EFI_HANDOFF_TABLES2:
 			case TPM2_EFI_ACTION:
 				new_digest = old_digest;
 				break;
