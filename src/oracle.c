@@ -35,20 +35,6 @@
 #include "runtime.h"
 
 enum {
-	PREDICT_FROM_ZERO,
-	PREDICT_FROM_CURRENT,
-	PREDICT_FROM_SNAPSHOT,
-	PREDICT_FROM_EVENTLOG,
-};
-
-static const char *		source_names[16] = {
-	[PREDICT_FROM_ZERO]	= "zero",
-	[PREDICT_FROM_CURRENT]	= "current",
-	[PREDICT_FROM_SNAPSHOT]	= "snapshot",
-	[PREDICT_FROM_EVENTLOG]	= "eventlog",
-};
-
-enum {
 	STOP_EVENT_NONE,
 	STOP_EVENT_GRUB_COMMAND,
 	STOP_EVENT_GRUB_FILE,
@@ -65,7 +51,7 @@ typedef struct tpm_pcr_bank {
 
 struct predictor {
 	uint32_t		pcr_mask;
-	int			from;
+	const char *		initial_source;
 
 	const char *		algo;
 	const tpm_algo_info_t *	algo_info;
@@ -86,13 +72,15 @@ struct predictor {
 #define GRUB_PCR_SNAPSHOT_UUID	"7ce323f2-b841-4d30-a0e9-5474a76c9a3f"
 
 enum {
-	OPT_USE_PESIGN = 256,
+	OPT_FROM = 256,
+	OPT_USE_PESIGN,
 	OPT_STOP_EVENT,
 	OPT_AFTER,
 	OPT_BEFORE,
 };
 
 static struct option options[] = {
+	{ "from",		required_argument,	0,	OPT_FROM },
 	{ "from-zero",		no_argument,		0,	'Z' },
 	{ "from-current",	no_argument,		0,	'C' },
 	{ "from-snapshot",	no_argument,		0,	'S' },
@@ -125,10 +113,11 @@ usage(int exitval, const char *msg)
 		"pcr-oracle [options] pcr-index [updates...]\n"
 		"\n"
 		"The following options are recognized:\n"
-		"  -Z, --from-zero        Assume a PCR state of all zero\n"
-		"  -C, --from-current     Set the PCR state to the current state of the host's PCR\n"
-		"  -S, --from-snapshot    Read the PCR state from a snapshot taken during boot (GrubPcrSnapshot EFI variable)\n"
-		"  -L, --from-eventlog    Predict the PCR state using the event log, by substituting current values\n"
+		"  --from SOURCE          Initialize PCR predictor from indicated source, which must be one of:\n"
+		"                          zero: assume a PCR state of all zero\n"
+		"                          current: set the PCR state to the current state of the host's PCR\n"
+		"                          snapshot: read the PCR state from a snapshot taken during boot (GrubPcrSnapshot EFI variable)\n"
+		"                          eventlog: predict the PCR state using the event log, by substituting current values\n"
 		"  -A name, --algorithm name\n"
 		"                         Use hash algorithm <name>. Defaults to sha256\n"
 		"  -F name, --output-format name\n"
@@ -373,16 +362,16 @@ predictor_load_eventlog(struct predictor *pred)
 }
 
 static struct predictor *
-predictor_new(unsigned int pcr_mask, int from, const char *algo_name, const char *output_format)
+predictor_new(unsigned int pcr_mask, const char *source, const char *algo_name, const char *output_format)
 {
 	struct predictor *pred;
-	const char *source;
+
+	if (source == NULL)
+		source = "zero";
 
 	pred = calloc(1, sizeof(*pred));
 	pred->pcr_mask = pcr_mask;
-	pred->from = from >= 0? from : PREDICT_FROM_ZERO;
-	source = source_names[pred->from];
-	assert(source);
+	pred->initial_source = source;
 
 	pred->algo = algo_name? : "sha256";
 	pred->md = EVP_get_digestbyname(pred->algo);
@@ -410,7 +399,7 @@ predictor_new(unsigned int pcr_mask, int from, const char *algo_name, const char
 	debug("Initializing predictor for %s:%s from %s\n", pred->algo, print_pcr_mask(pcr_mask), source);
 	pcr_bank_load_initial_values(&pred->prediction, pcr_mask, pred->algo_info, source);
 
-	if (pred->from == PREDICT_FROM_EVENTLOG)
+	if (!strcmp(source, "eventlog"))
 		predictor_load_eventlog(pred);
 
 	debug("Created new predictor\n");
@@ -776,7 +765,7 @@ predictor_report(struct predictor *pred)
 {
 	unsigned int pcr_index;
 
-	if (pred->from == PREDICT_FROM_EVENTLOG)
+	if (!strcmp(pred->initial_source, "eventlog"))
 		predictor_update_eventlog(pred);
 
 	for (pcr_index = 0; pcr_index < PREDICTOR_PCR_MAX; ++pcr_index) {
@@ -830,7 +819,7 @@ main(int argc, char **argv)
 {
 	unsigned int pcr_mask;
 	struct predictor *pred;
-	int opt_from = -1;
+	char *opt_from = NULL;
 	char *opt_algo = NULL;
 	char *opt_output_format = NULL;
 	char *opt_stop_event = NULL;
@@ -845,17 +834,20 @@ main(int argc, char **argv)
 		case 'F':
 			opt_output_format = optarg;
 			break;
+		case OPT_FROM:
+			opt_from = optarg;
+			break;
 		case 'Z':
-			opt_from = PREDICT_FROM_ZERO;
+			opt_from = "zero";
 			break;
 		case 'C':
-			opt_from = PREDICT_FROM_CURRENT;
+			opt_from = "current";
 			break;
 		case 'S':
-			opt_from = PREDICT_FROM_SNAPSHOT;
+			opt_from = "snapshot";
 			break;
 		case 'L':
-			opt_from = PREDICT_FROM_EVENTLOG;
+			opt_from = "eventlog";
 			break;
 		case 'd':
 			opt_debug += 1;
@@ -885,7 +877,7 @@ main(int argc, char **argv)
 	if (!parse_pcr_mask(argv[optind++], &pcr_mask))
 		usage(1, "Bad value for PCR argument");
 
-	if (opt_stop_event && opt_from != PREDICT_FROM_EVENTLOG)
+	if (opt_stop_event && (!opt_from || strcmp(opt_from, "eventlog")))
 		usage(1, "--stop-event only makes sense when using event log");
 
 	pred = predictor_new(pcr_mask, opt_from, opt_algo, opt_output_format);
