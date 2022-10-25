@@ -568,13 +568,9 @@ predictor_update_file(struct predictor *pred, unsigned int pcr_index, const char
 
 static const tpm_evdigest_t *
 predictor_compute_boot_services_application(struct predictor *pred, tpm_event_t *ev,
+		tpm_parsed_event_t *parsed,
 		char **efi_partition_p, char **efi_application_p)
 {
-	tpm_parsed_event_t *parsed;
-
-	if (!(parsed = tpm_event_parse(ev)))
-		fatal("Unable to parse EFI_BOOT_SERVICES_APPLICATION event from TPM log\n");
-
 	if (!tpm_efi_bsa_event_extract_location(parsed, efi_partition_p, efi_application_p)) {
 		error("Unable to locate updated boot service application\n");
 		return NULL;
@@ -645,8 +641,10 @@ static void
 predictor_update_eventlog(struct predictor *pred)
 {
 	char *efi_partition = NULL, *efi_application = NULL;
+	tpm_event_log_rehash_ctx_t rehash_ctx;
 	tpm_event_t *ev;
 
+	tpm_event_log_rehash_ctx_init(&rehash_ctx, pred->algo_info);
 	for (ev = pred->event_log; ev; ev = ev->next) {
 		tpm_evdigest_t *pcr;
 		bool stop = false;
@@ -684,7 +682,10 @@ predictor_update_eventlog(struct predictor *pred)
 
 			switch (ev->event_type) {
 			case TPM2_EFI_BOOT_SERVICES_APPLICATION:
-				new_digest = predictor_compute_boot_services_application(pred, ev, &efi_partition, &efi_application);
+				if (!(parsed = tpm_event_parse(ev)))
+					fatal("Unable to parse %s event from TPM log\n", tpm_event_type_to_string(ev->event_type));
+
+				new_digest = predictor_compute_boot_services_application(pred, ev, parsed, &efi_partition, &efi_application);
 				description = efi_application;
 				break;
 
@@ -695,7 +696,7 @@ predictor_update_eventlog(struct predictor *pred)
 				if (!(parsed = tpm_event_parse(ev)))
 					fatal("Unable to parse %s event from TPM log\n", tpm_event_type_to_string(ev->event_type));
 
-				new_digest = tpm_parsed_event_rehash(ev, parsed, pred->algo_info);
+				new_digest = tpm_parsed_event_rehash(ev, parsed, &rehash_ctx);
 				description = tpm_parsed_event_describe(parsed);
 				break;
 
@@ -750,6 +751,7 @@ predictor_update_eventlog(struct predictor *pred)
 		}
 	}
 
+	tpm_event_log_rehash_ctx_destroy(&rehash_ctx);
 	drop_string(&efi_partition);
 	drop_string(&efi_application);
 }

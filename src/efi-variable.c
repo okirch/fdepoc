@@ -101,8 +101,9 @@ enum {
 };
 
 static const tpm_evdigest_t *
-__tpm_event_efi_variable_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, const tpm_algo_info_t *algo)
+__tpm_event_efi_variable_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, tpm_event_log_rehash_ctx_t *ctx)
 {
+	const tpm_algo_info_t *algo = ctx->algo;
 	const char *var_name;
 	buffer_t *file_data, *event_data = NULL, *data_to_hash = NULL;
 	const tpm_evdigest_t *md, *old_md;

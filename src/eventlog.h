@@ -164,6 +164,17 @@ enum {
 	TPM2_EFI_DEVPATH_MESSAGING_SUBTYPE_EMMC		= 0x1D,
 };
 
+/*
+ * This structure is used when re-hashing all events in the event log.
+ *
+ * Apart from the desired hash algo, it records the boot partition we
+ * identify while parsing BSA events
+ */
+typedef struct tpm_event_log_rehash_ctx {
+	const tpm_algo_info_t *	algo;
+	char *			efi_partition;
+} tpm_event_log_rehash_ctx_t;
+
 #define GRUB_COMMAND_ARGV_MAX	32
 
 /*
@@ -176,7 +187,7 @@ typedef struct tpm_parsed_event {
 	void			(*destroy)(struct tpm_parsed_event *);
 	void			(*print)(struct tpm_parsed_event *, tpm_event_bit_printer *);
 	struct buffer *		(*rebuild)(const struct tpm_parsed_event *, const void *raw_data, unsigned int raw_data_len);
-	const tpm_evdigest_t *	(*rehash)(const tpm_event_t *, const struct tpm_parsed_event *, const tpm_algo_info_t *);
+	const tpm_evdigest_t *	(*rehash)(const tpm_event_t *, const struct tpm_parsed_event *, tpm_event_log_rehash_ctx_t *);
 
 	union {
 		struct {
@@ -214,6 +225,9 @@ extern void			event_log_close(tpm_event_log_reader_t *log);
 extern tpm_event_t *		event_log_read_next(tpm_event_log_reader_t *log);
 extern void			tpm_event_print(tpm_event_t *ev);
 extern void			__tpm_event_print(tpm_event_t *ev, tpm_event_bit_printer *print_fn);
+extern void			tpm_event_log_rehash_ctx_init(tpm_event_log_rehash_ctx_t *,
+					const tpm_algo_info_t *);
+extern void			tpm_event_log_rehash_ctx_destroy(tpm_event_log_rehash_ctx_t *);
 extern tpm_parsed_event_t *	tpm_event_parse(tpm_event_t *ev);
 extern const char *		tpm_event_type_to_string(unsigned int event_type);
 extern const tpm_evdigest_t *	tpm_event_get_digest(const tpm_event_t *ev, const char *algo_name);
@@ -223,7 +237,8 @@ extern void			tpm_parsed_event_print(tpm_parsed_event_t *parsed,
 					tpm_event_bit_printer *);
 extern const char *		tpm_parsed_event_describe(tpm_parsed_event_t *parsed);
 extern struct buffer *		tpm_parsed_event_rebuild(tpm_parsed_event_t *, const void *, unsigned int);
-extern const tpm_evdigest_t *	tpm_parsed_event_rehash(const tpm_event_t *, const tpm_parsed_event_t *, const tpm_algo_info_t *);
+extern const tpm_evdigest_t *	tpm_parsed_event_rehash(const tpm_event_t *, const tpm_parsed_event_t *,
+					tpm_event_log_rehash_ctx_t *);
 
 struct buffer; /* fwd decl */
 

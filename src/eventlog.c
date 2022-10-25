@@ -462,13 +462,13 @@ tpm_parsed_event_rebuild(tpm_parsed_event_t *parsed, const void *raw_data, unsig
 }
 
 const tpm_evdigest_t *
-tpm_parsed_event_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, const tpm_algo_info_t *algo)
+tpm_parsed_event_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, tpm_event_log_rehash_ctx_t *ctx)
 {
 	if (!parsed)
 		return NULL;
 
 	if (parsed->rehash)
-		return parsed->rehash(ev, parsed, algo);
+		return parsed->rehash(ev, parsed, ctx);
 
 	return NULL;
 }
@@ -516,7 +516,7 @@ __tpm_event_grub_file_describe(const tpm_parsed_event_t *parsed)
 
 
 static const tpm_evdigest_t *
-__tpm_event_grub_file_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, const tpm_algo_info_t *algo)
+__tpm_event_grub_file_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, tpm_event_log_rehash_ctx_t *ctx)
 {
 	char path[PATH_MAX], *filename;
 
@@ -535,7 +535,7 @@ __tpm_event_grub_file_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *pa
 		return NULL;
 	}
 
-	return digest_from_file(algo, filename, 0);
+	return digest_from_file(ctx->algo, filename, 0);
 }
 
 /*
@@ -599,12 +599,12 @@ __tpm_event_grub_command_describe(const tpm_parsed_event_t *parsed)
 }
 
 static const tpm_evdigest_t *
-__tpm_event_grub_command_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, const tpm_algo_info_t *algo)
+__tpm_event_grub_command_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, tpm_event_log_rehash_ctx_t *ctx)
 {
 	if (parsed->grub_command.string == NULL)
 		return NULL;
 
-	return digest_compute(algo, parsed->grub_command.string, strlen(parsed->grub_command.string));
+	return digest_compute(ctx->algo, parsed->grub_command.string, strlen(parsed->grub_command.string));
 }
 
 /*
@@ -720,4 +720,17 @@ tpm_event_parse(tpm_event_t *ev)
 	}
 
 	return ev->__parsed;
+}
+
+void
+tpm_event_log_rehash_ctx_init(tpm_event_log_rehash_ctx_t *ctx, const tpm_algo_info_t *algo)
+{
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->algo = algo;
+}
+
+void
+tpm_event_log_rehash_ctx_destroy(tpm_event_log_rehash_ctx_t *ctx)
+{
+	drop_string(&ctx->efi_partition);
 }
