@@ -191,14 +191,14 @@ typedef struct tpm_parsed_event {
 	const tpm_evdigest_t *	(*rehash)(const tpm_event_t *, const struct tpm_parsed_event *, tpm_event_log_rehash_ctx_t *);
 
 	union {
-		struct {
+		struct efi_variable_event {
 			unsigned char	variable_guid[16];
 			char *		variable_name;
 			unsigned int	len;
 			void *		data;
 		} efi_variable_event;
 
-		struct {
+		struct efi_bsa_event {
 			uint64_t	image_location;
 			size_t		image_length;
 			size_t		image_lt_address;
@@ -207,12 +207,12 @@ typedef struct tpm_parsed_event {
 		} efi_bsa_event;
 
 		/* for GRUB_COMMAND, GRUB_KERNEL_CMDLINE */
-		struct {
+		struct grub_command_event {
 			char *		string;
 			char *		argv[GRUB_COMMAND_ARGV_MAX];
 		} grub_command;
 
-		struct {
+		struct grub_file_event {
 			char *		device;
 			char *		path;
 		} grub_file;
