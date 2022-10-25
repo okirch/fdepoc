@@ -22,6 +22,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <ctype.h>
 #include "runtime.h"
 
 static buffer_t *
@@ -98,3 +99,56 @@ runtime_read_efi_variable(const char *var_name)
 	return __system_read_efi_variable(var_name);
 }
 
+char *
+runtime_disk_for_partition(const char *part_dev)
+{
+	int len = strlen(part_dev);
+	char *result;
+
+	if (len == 0 || !isdigit(part_dev[len-1]))
+		return NULL;
+
+	result = strdup(part_dev);
+	while (len && isdigit(result[len-1]))
+		result[--len] = '\0';
+	return result;
+}
+
+int
+runtime_blockdev_open(const char *dev)
+{
+	return open(dev, O_RDONLY);
+}
+
+buffer_t *
+runtime_blockdev_read_lba(int fd, unsigned int block, unsigned int count)
+{
+	static const unsigned int sector_size = 512;
+	unsigned int bytes;
+	buffer_t *result;
+	int n;
+
+	if (lseek(fd, block * sector_size, SEEK_SET) < 0) {
+		error("block dev seek: %m\n");
+		return NULL;
+	}
+
+	bytes = sector_size * count;
+
+	result = buffer_alloc_write(bytes);
+	n = read(fd, buffer_write_pointer(result), bytes);
+	if (n < 0) {
+		error("block dev read: %m\n");
+		goto failed;
+	}
+	if (n < bytes) {
+		error("block dev read: %m\n");
+		goto failed;
+	}
+	result->wpos += bytes;
+	return result;
+
+failed:
+	buffer_free(result);
+	return NULL;
+}

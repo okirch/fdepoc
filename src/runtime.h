@@ -29,5 +29,15 @@
 
 extern buffer_t *	runtime_read_file(const char *pathname, int flags);
 extern buffer_t *	runtime_read_efi_variable(const char *var_name);
+extern char *		runtime_disk_for_partition(const char *part_dev);
+extern int		runtime_blockdev_open(const char *dev);
+extern buffer_t *	runtime_blockdev_read_lba(int fd, unsigned int block, unsigned int count);
+
+static inline unsigned int
+runtime_blockdev_bytes_to_sectors(unsigned int size)
+{
+	/* hard coding sector size for now */
+	return (size + 511) / 512;
+}
 
 #endif /* RUNTIME_H */
