@@ -49,6 +49,13 @@ enum {
 
 #define PREDICTOR_PCR_MAX	32
 
+typedef struct tpm_pcr_bank {
+	uint32_t		pcr_mask;
+	uint32_t		valid_mask;
+	const char *		algo_name;
+	tpm_evdigest_t		pcr[PREDICTOR_PCR_MAX];
+} tpm_pcr_bank_t;
+
 struct predictor {
 	uint32_t		pcr_mask;
 	int			from;
@@ -66,7 +73,7 @@ struct predictor {
 
 	void			(*report_fn)(struct predictor *, unsigned int);
 
-	tpm_evdigest_t		pcr[PREDICTOR_PCR_MAX];
+	tpm_pcr_bank_t		prediction;
 };
 
 #define GRUB_PCR_SNAPSHOT_UUID	"7ce323f2-b841-4d30-a0e9-5474a76c9a3f"
@@ -144,6 +151,46 @@ usage(int exitval, const char *msg)
 	exit(exitval);
 }
 
+static void
+pcr_bank_initialize(tpm_pcr_bank_t *bank, unsigned int pcr_mask, const tpm_algo_info_t *algo)
+{
+	unsigned int i;
+
+	bank->algo_name = algo->openssl_name;
+	bank->pcr_mask = pcr_mask;
+
+	for (i = 0; i < PREDICTOR_PCR_MAX; ++i) {
+		tpm_evdigest_t *pcr = &bank->pcr[i];
+
+		pcr->size = algo->digest_size;
+		pcr->algo = algo;
+	}
+}
+
+static inline bool
+pcr_bank_wants_pcr(tpm_pcr_bank_t *bank, unsigned int index)
+{
+	return !!(bank->pcr_mask & (1 << index));
+}
+
+static inline void
+pcr_bank_mark_valid(tpm_pcr_bank_t *bank, unsigned int index)
+{
+	bank->valid_mask |= (1 << index);
+}
+
+static inline tpm_evdigest_t *
+pcr_bank_get_register(tpm_pcr_bank_t *bank, unsigned int index, const char *algo)
+{
+	if (algo && strcasecmp(algo, bank->algo_name))
+		return NULL;
+
+	if (!pcr_bank_wants_pcr(bank, index))
+		return NULL;
+
+	return &bank->pcr[index];
+}
+
 static inline bool
 predictor_wants_pcr(const struct predictor *pred, unsigned int index)
 {
@@ -159,7 +206,7 @@ predictor_get_pcr_state(struct predictor *pred, unsigned int index, const char *
 	if (!predictor_wants_pcr(pred, index))
 		return NULL;
 
-	return &pred->pcr[index];
+	return &pred->prediction.pcr[index];
 }
 
 static void
@@ -183,11 +230,10 @@ pcr_state_update(tpm_evdigest_t *pcr, const EVP_MD *md, const tpm_evdigest_t *d)
 }
 
 static void
-predictor_init_from_snapshot(struct predictor *pred)
+pcr_bank_init_from_snapshot(tpm_pcr_bank_t *bank)
 {
 	const char *efivar_path = "/sys/firmware/efi/vars/GrubPcrSnapshot-" GRUB_PCR_SNAPSHOT_UUID "/data";
 	char linebuf[256];
-	uint32_t found = 0;
 	FILE *fp;
 
 	debug("Trying to find PCR values in %s\n", efivar_path);
@@ -210,7 +256,7 @@ predictor_init_from_snapshot(struct predictor *pred)
 			continue;
 
 		debug("inspecting %u:%s\n", index, algo);
-		if ((pcr = predictor_get_pcr_state(pred, index, algo)) == NULL)
+		if ((pcr = pcr_bank_get_register(bank, index, algo)) == NULL)
 			continue;
 
 		if (!(value = strtok(NULL, " \t\n")))
@@ -220,18 +266,22 @@ predictor_init_from_snapshot(struct predictor *pred)
 		if (len == 0)
 			continue;
 
-		if (len == pcr->size) {
-			found |= (1 << index);
-		} else {
+		if (len != pcr->size) {
 			debug("Found entry for %s:%u, but value has wrong size %u (expected %u)\n",
-				pred->algo, index, len, pcr->size);
+				bank->algo_name, index, len, pcr->size);
+			continue;
 		}
+
+		pcr_bank_mark_valid(bank, index);
 	}
 
 	fclose(fp);
+}
 
-	if (pred->pcr_mask != found)
-		fatal("Could not find all required PCR values in %s\n", efivar_path);
+static void
+predictor_init_from_snapshot(struct predictor *pred)
+{
+	pcr_bank_init_from_snapshot(&pred->prediction);
 }
 
 static void
@@ -258,7 +308,7 @@ fapi_error(const char *func, int rc)
 }
 
 static void
-predictor_init_from_current(struct predictor *pred)
+pcr_bank_init_from_current(tpm_pcr_bank_t *bank, const char *algo_name)
 {
 	FAPI_CONTEXT *context = NULL;
 	uint8_t *digests[8] = { NULL };
@@ -266,9 +316,9 @@ predictor_init_from_current(struct predictor *pred)
 	unsigned int i;
 	int rc;
 
-	if (strcmp(pred->algo, "sha256"))
+	if (strcmp(algo_name, "sha256"))
 		fatal("Cannot initialize from current TPM values for digest algorithm %s - not implemented\n",
-				pred->algo);
+				algo_name);
 
 	rc = Fapi_Initialize(&context, NULL);
 	if (rc != 0)
@@ -277,7 +327,7 @@ predictor_init_from_current(struct predictor *pred)
 	for (i = 0; i < PREDICTOR_PCR_MAX; ++i) {
 		tpm_evdigest_t *pcr;
 
-		if (!(pcr = predictor_get_pcr_state(pred, i, "sha256")))
+		if (!(pcr = pcr_bank_get_register(bank, i, "sha256")))
 			continue;
 
 		/* FIXME: how does this function select a PCR bank?
@@ -290,12 +340,18 @@ predictor_init_from_current(struct predictor *pred)
 
 		if (pcr->size != digest_sizes[0])
 			fatal("Could not initialize predictor for PCR %s:%u: initial hash value has size %u (expected %u)\n",
-					pred->algo, i,
+					algo_name, i,
 					(int) digest_sizes[0], pcr->size);
 		memcpy(pcr->data, digests[0], pcr->size);
+		pcr_bank_mark_valid(bank, i);
 		Fapi_Free(digests[0]);
 	}
+}
 
+static void
+predictor_init_from_current(struct predictor *pred)
+{
+	pcr_bank_init_from_current(&pred->prediction, pred->algo);
 	debug("Initialized predictor from current PCR values\n");
 }
 
@@ -303,7 +359,6 @@ static struct predictor *
 predictor_new(unsigned int pcr_mask, int from, const char *algo_name, const char *output_format)
 {
 	struct predictor *pred;
-	unsigned int i;
 
 	pred = calloc(1, sizeof(*pred));
 	pred->pcr_mask = pcr_mask;
@@ -322,20 +377,15 @@ predictor_new(unsigned int pcr_mask, int from, const char *algo_name, const char
 	assert(EVP_MD_size(pred->md) == pred->algo_info->digest_size);
 
 	debug("Initializing predictor for %s:%s\n", pred->algo, print_pcr_mask(pcr_mask));
-	for (i = 0; i < PREDICTOR_PCR_MAX; ++i) {
-		tpm_evdigest_t *pcr = &pred->pcr[i];
-
-		pcr->size = EVP_MD_size(pred->md);
-		pcr->algo = pred->algo_info;
-	}
+	pcr_bank_initialize(&pred->prediction, pcr_mask, pred->algo_info);
 
 	if (!output_format || !strcasecmp(output_format, "plain"))
 		pred->report_fn = predictor_report_plain;
 	else
-	if (!output_format || !strcasecmp(output_format, "tpm2-tools"))
+	if (!strcasecmp(output_format, "tpm2-tools"))
 		pred->report_fn = predictor_report_tpm2_tools;
 	else
-	if (!output_format || !strcasecmp(output_format, "binary"))
+	if (!strcasecmp(output_format, "binary"))
 		pred->report_fn = predictor_report_binary;
 	else
 		fatal("Unsupported output format \"%s\"\n", output_format);
@@ -351,6 +401,9 @@ predictor_new(unsigned int pcr_mask, int from, const char *algo_name, const char
 	if (pred->from == PREDICT_FROM_EVENTLOG) {
 		predictor_load_eventlog(pred);
 	}
+
+	if (pred->prediction.pcr_mask != pred->prediction.valid_mask)
+		fatal("Could not initialize all required PCR values from indicated source\n");
 
 	debug("Created new predictor\n");
 	return pred;
