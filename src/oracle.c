@@ -691,6 +691,7 @@ predictor_update_eventlog(struct predictor *pred)
 			case TPM2_EFI_VARIABLE_BOOT:
 			case TPM2_EFI_VARIABLE_AUTHORITY:
 			case TPM2_EFI_VARIABLE_DRIVER_CONFIG:
+			case TPM2_EVENT_IPL:			/* used by grub2 for PCR 8 and PCR9 */
 				if (!(parsed = tpm_event_parse(ev)))
 					fatal("Unable to parse %s event from TPM log\n", tpm_event_type_to_string(ev->event_type));
 
@@ -716,7 +717,6 @@ predictor_update_eventlog(struct predictor *pred)
 			case TPM2_EFI_HANDOFF_TABLES:
 			case TPM2_EFI_GPT_EVENT:
 			case TPM2_EFI_ACTION:
-			case TPM2_EVENT_IPL:			/* used by grub2 for PCR9 */
 				new_digest = old_digest;
 				break;
 

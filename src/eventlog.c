@@ -444,8 +444,12 @@ tpm_parsed_event_describe(tpm_parsed_event_t *parsed)
 void
 tpm_parsed_event_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *print_fn)
 {
-	if (parsed && parsed->print)
+	if (!parsed)
+		return;
+	if (parsed->print)
 		parsed->print(parsed, print_fn);
+	else if (parsed->describe)
+		print_fn("  %s\n", parsed->describe(parsed));
 }
 
 buffer_t *
@@ -578,19 +582,40 @@ __tpm_event_grub_file_destroy(tpm_parsed_event_t *parsed)
 	drop_string(&parsed->grub_file.path);
 }
 
-static void
-__tpm_event_grub_file_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *print_fn)
+const char *
+__tpm_event_grub_file_describe(const tpm_parsed_event_t *parsed)
 {
+	static char buffer[1024];
+
 	if (parsed->grub_file.device == NULL)
-		print_fn("  grub2 file load from %s\n", parsed->grub_file.path);
+		snprintf(buffer, sizeof(buffer), "grub2 file load from %s", parsed->grub_file.path);
 	else
-		print_fn("  grub2 file load from (%s)%s\n", parsed->grub_file.device, parsed->grub_file.path);
+		snprintf(buffer, sizeof(buffer), "grub2 file load from (%s)%s", parsed->grub_file.device, parsed->grub_file.path);
+	return buffer;
 }
 
-static buffer_t *
-__tpm_event_grub_file_rebuild(const tpm_parsed_event_t *parsed, const void *raw_data, unsigned int raw_data_len)
+
+static const tpm_evdigest_t *
+__tpm_event_grub_file_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, const tpm_algo_info_t *algo)
 {
-	return NULL;
+	char path[PATH_MAX], *filename;
+
+	debug("  re-hashing %s\n", __tpm_event_grub_file_describe(parsed));
+	if (parsed->grub_file.device) {
+		debug("  assuming the file to reside on EFI boot partition\n");
+		snprintf(path, sizeof(path), "/boot/efi%s", parsed->grub_file.path);
+		filename = path;
+	} else {
+		debug("  assuming the file to reside on system partition\n");
+		filename = parsed->grub_file.path;
+	}
+
+	if (access(filename, R_OK) < 0) {
+		error("%s: %m\n", filename);
+		return NULL;
+	}
+
+	return digest_from_file(algo, filename, 0);
 }
 
 /*
@@ -625,8 +650,8 @@ __tpm_event_grub_file_event_parse(tpm_event_t *ev, tpm_parsed_event_t *parsed, c
 
 	parsed->event_subtype = GRUB_EVENT_FILE;
 	parsed->destroy = __tpm_event_grub_file_destroy;
-	parsed->print = __tpm_event_grub_file_print;
-	parsed->rebuild = __tpm_event_grub_file_rebuild;
+	parsed->rehash = __tpm_event_grub_file_rehash;
+	parsed->describe = __tpm_event_grub_file_describe;
 
 	return true;
 }
@@ -641,13 +666,25 @@ __tpm_event_grub_command_destroy(tpm_parsed_event_t *parsed)
 		drop_string(&parsed->grub_command.argv[argc]);
 }
 
-static void
-__tpm_event_grub_command_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *print_fn)
+static const char *
+__tpm_event_grub_command_describe(const tpm_parsed_event_t *parsed)
 {
+	static char buffer[128];
+
 	if (parsed->event_subtype == GRUB_EVENT_COMMAND)
-		print_fn("  grub2 command \"%s\"\n", parsed->grub_command.string);
+		snprintf(buffer, sizeof(buffer), "grub2 command \"%s\"", parsed->grub_command.string);
 	else
-		print_fn("  grub2 kernel cmdline \"%s\"\n", parsed->grub_command.string);
+		snprintf(buffer, sizeof(buffer), "grub2 kernel cmdline \"%s\"", parsed->grub_command.string);
+	return buffer;
+}
+
+static const tpm_evdigest_t *
+__tpm_event_grub_command_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, const tpm_algo_info_t *algo)
+{
+	if (parsed->grub_command.string == NULL)
+		return NULL;
+
+	return digest_compute(algo, parsed->grub_command.string, strlen(parsed->grub_command.string));
 }
 
 /*
@@ -695,7 +732,8 @@ __tpm_event_grub_command_event_parse(tpm_event_t *ev, tpm_parsed_event_t *parsed
 	}
 
 	parsed->destroy = __tpm_event_grub_command_destroy;
-	parsed->print = __tpm_event_grub_command_print;
+	parsed->rehash = __tpm_event_grub_command_rehash;
+	parsed->describe = __tpm_event_grub_command_describe;
 
 	free(copy);
 	return true;
