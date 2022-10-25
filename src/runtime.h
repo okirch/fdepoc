@@ -25,6 +25,7 @@
 #include "bufparser.h"
 
 #define RUNTIME_SHORT_READ_OKAY		0x0001
+#define RUNTIME_MISSING_FILE_OKAY	0x0002
 
 extern buffer_t *	runtime_read_file(const char *pathname, int flags);
 extern buffer_t *	runtime_read_efi_variable(const char *var_name);

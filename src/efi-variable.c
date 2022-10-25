@@ -117,10 +117,7 @@ __tpm_event_efi_variable_rehash(const tpm_event_t *ev, const tpm_parsed_event_t 
 		return NULL;
 	}
 
-	if (!strcmp(var_name, "KEK-8be4df61-93ca-11d2-aa0d-00e098032b8c")
-	 || !strcmp(var_name, "db-d719b2cb-3d3a-4596-a3bc-dad00e67656f")
-	 || !strcmp(var_name, "dbx-d719b2cb-3d3a-4596-a3bc-dad00e67656f")
-	 || !strcmp(var_name, "SbatLevel-605dab50-e046-4300-abb6-3dd810dd8b23")) {
+	if (!strcmp(var_name, "SbatLevel-605dab50-e046-4300-abb6-3dd810dd8b23")) {
 		debug("EFI variable %s is protected from kernel runtime; assuming it did not change\n", var_name);
 		return old_md;
 	}

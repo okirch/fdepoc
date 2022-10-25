@@ -21,6 +21,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #include "runtime.h"
 
 static buffer_t *
@@ -32,8 +33,12 @@ __system_read_file(const char *filename, int flags)
 	int fd;
 
 	debug("Reading %s\n", filename);
-	if ((fd = open(filename, O_RDONLY)) < 0)
+	if ((fd = open(filename, O_RDONLY)) < 0) {
+		if (errno == ENOENT && (flags & RUNTIME_MISSING_FILE_OKAY))
+			return NULL;
+
 		fatal("Unable to open file %s: %m\n", filename);
+	}
 
 	if (fstat(fd, &stb) < 0)
 		fatal("Cannot stat %s: %m\n", filename);
@@ -65,7 +70,18 @@ static buffer_t *
 __system_read_efi_variable(const char *var_name)
 {
 	char filename[PATH_MAX];
+	buffer_t *result;
 
+	/* First, try new efivars interface */
+	snprintf(filename, sizeof(filename), "/sys/firmware/efi/efivars/%s", var_name);
+	result = __system_read_file(filename, RUNTIME_SHORT_READ_OKAY | RUNTIME_MISSING_FILE_OKAY);
+	if (result != NULL) {
+		/* Skip over 4 bytes of variable attributes */
+		buffer_skip(result, 4);
+		return result;
+	}
+
+	/* Fall back to old sysfs entries with their 1K limitation */
 	snprintf(filename, sizeof(filename), "/sys/firmware/efi/vars/%s/data", var_name);
 	return __system_read_file(filename, RUNTIME_SHORT_READ_OKAY);
 }
