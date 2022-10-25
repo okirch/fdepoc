@@ -416,19 +416,7 @@ predictor_extend_hash(struct predictor *pred, unsigned int pcr_index, const tpm_
 static const tpm_evdigest_t *
 predictor_compute_digest(struct predictor *pred, const void *data, unsigned int size)
 {
-	static tpm_evdigest_t md;
-	EVP_MD_CTX *mdctx;
-
-	mdctx = EVP_MD_CTX_new();
-	EVP_DigestInit_ex(mdctx, pred->md, NULL);
-
-	EVP_DigestUpdate(mdctx, data, size);
-	EVP_DigestFinal_ex(mdctx, md.data, &md.size);
-	EVP_MD_CTX_free(mdctx);
-
-	md.algo = pred->algo_info;
-
-	return &md;
+	return digest_compute(pred->algo_info, data, size);
 }
 
 static digest_ctx_t *
@@ -559,38 +547,6 @@ predictor_compute_efi_file_digest(struct predictor *pred, unsigned int pcr_index
 	return md;
 }
 
-static const tpm_evdigest_t *
-predictor_compute_efi_variable_digest(struct predictor *pred, tpm_parsed_event_t *parsed, const char *var_name)
-{
-	buffer_t *file_data, *efi_data;
-	const tpm_evdigest_t *md;
-
-	file_data = runtime_read_efi_variable(var_name);
-	if (file_data == NULL)
-		return NULL;
-
-	efi_data = tpm_parsed_event_rebuild(parsed,
-			buffer_read_pointer(file_data),
-			buffer_available(file_data));
-	if (efi_data == NULL)
-		fatal("Unable to re-marshal EFI variable\n");
-
-	if (opt_debug > 1) {
-		debug("  Remarshaled blob for EFI variable %s:\n", var_name);
-		hexdump(buffer_read_pointer(efi_data),
-			buffer_available(efi_data),
-			debug, 8);
-	}
-
-	md = predictor_compute_digest(pred,
-			buffer_read_pointer(efi_data),
-			buffer_available(efi_data));
-
-	buffer_free(file_data);
-	buffer_free(efi_data);
-	return md;
-}
-
 static void
 predictor_update_string(struct predictor *pred, unsigned int pcr_index, const char *value)
 {
@@ -625,35 +581,6 @@ predictor_compute_boot_services_application(struct predictor *pred, tpm_event_t 
 	}
 
 	return predictor_compute_efi_file_digest(pred, ev->pcr_index, *efi_partition_p, *efi_application_p);
-}
-
-static const tpm_evdigest_t *
-predictor_compute_efi_variable(struct predictor *pred, tpm_event_t *ev, const char **desc_p)
-{
-	tpm_parsed_event_t *parsed;
-	const char *var_name;
-	const tpm_evdigest_t *md;
-
-	if (!(parsed = tpm_event_parse(ev)))
-		fatal("Unable to parse EFI_VARIABLE event from TPM log");
-
-	if (!(var_name = tpm_efi_variable_event_extract_full_varname(parsed)))
-		fatal("Unable to extract EFI variable name from EFI_VARIABLE event\n");
-
-	*desc_p = var_name;
-
-	if (!strcmp(var_name, "KEK-8be4df61-93ca-11d2-aa0d-00e098032b8c")
-	 || !strcmp(var_name, "db-d719b2cb-3d3a-4596-a3bc-dad00e67656f")
-	 || !strcmp(var_name, "dbx-d719b2cb-3d3a-4596-a3bc-dad00e67656f")
-	 || !strcmp(var_name, "SbatLevel-605dab50-e046-4300-abb6-3dd810dd8b23")) {
-		md = tpm_event_get_digest(ev, pred->algo);
-		if (md == NULL)
-			debug("Event does not provide a digest for algorithm %s\n", pred->algo);
-	} else {
-		md = predictor_compute_efi_variable_digest(pred, parsed, var_name);
-	}
-
-	return md;
 }
 
 static bool
@@ -732,6 +659,7 @@ predictor_update_eventlog(struct predictor *pred)
 
 		pcr = predictor_get_pcr_state(pred, ev->pcr_index, NULL);
 		if (pcr != NULL) {
+			tpm_parsed_event_t *parsed;
 			const tpm_evdigest_t *old_digest, *new_digest;
 			const char *description = NULL;
 
@@ -740,6 +668,19 @@ predictor_update_eventlog(struct predictor *pred)
 
 			if (!(old_digest = tpm_event_get_digest(ev, pred->algo)))
 				fatal("Event log lacks a hash for digest algorithm %s\n", pred->algo);
+
+			if (false) {
+				const tpm_evdigest_t *tmp_digest;
+
+				tmp_digest = digest_compute(pred->algo_info, ev->event_data, ev->event_size);
+				if (!tmp_digest) {
+					debug("cannot compute digest for event data\n");
+				} else if (!digest_equal(old_digest, tmp_digest)) {
+					debug("firmware did more than just hash the event data\n");
+					debug("  Old digest: %s\n", digest_print(old_digest));
+					debug("  New digest: %s\n", digest_print(tmp_digest));
+				}
+			}
 
 			switch (ev->event_type) {
 			case TPM2_EFI_BOOT_SERVICES_APPLICATION:
@@ -750,7 +691,11 @@ predictor_update_eventlog(struct predictor *pred)
 			case TPM2_EFI_VARIABLE_BOOT:
 			case TPM2_EFI_VARIABLE_AUTHORITY:
 			case TPM2_EFI_VARIABLE_DRIVER_CONFIG:
-				new_digest = predictor_compute_efi_variable(pred, ev, &description);
+				if (!(parsed = tpm_event_parse(ev)))
+					fatal("Unable to parse %s event from TPM log\n", tpm_event_type_to_string(ev->event_type));
+
+				new_digest = tpm_parsed_event_rehash(ev, parsed, pred->algo_info);
+				description = tpm_parsed_event_describe(parsed);
 				break;
 
 			/* Probably needs to be done:
@@ -782,7 +727,7 @@ predictor_update_eventlog(struct predictor *pred)
 			}
 
 			if (new_digest == NULL)
-				fatal("Cannot recompute PCR for event type %s\n",
+				fatal("Cannot re-hash PCR for event type %s\n",
 						tpm_event_type_to_string(ev->event_type));
 
 			if (opt_debug && new_digest != old_digest) {

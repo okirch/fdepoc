@@ -34,6 +34,7 @@
 
 #include "eventlog.h"
 #include "bufparser.h"
+#include "runtime.h"
 #include "util.h"
 
 
@@ -75,7 +76,7 @@ __tpm_event_marshal_efi_variable(buffer_t *bp, const tpm_parsed_event_t *parsed,
 }
 
 static buffer_t *
-__tpm_event_efi_variable_rebuild(const tpm_parsed_event_t *parsed, const void *raw_data, unsigned int raw_data_len)
+__tpm_event_efi_variable_build_event(const tpm_parsed_event_t *parsed, const void *raw_data, unsigned int raw_data_len)
 {
 	buffer_t *bp;
 
@@ -94,6 +95,88 @@ __tpm_event_efi_variable_rebuild(const tpm_parsed_event_t *parsed, const void *r
 	return bp;
 }
 
+enum {
+	HASH_STRATEGY_EVENT,
+	HASH_STRATEGY_DATA,
+};
+
+static const tpm_evdigest_t *
+__tpm_event_efi_variable_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, const tpm_algo_info_t *algo)
+{
+	const char *var_name;
+	buffer_t *file_data, *event_data = NULL, *data_to_hash = NULL;
+	const tpm_evdigest_t *md, *old_md;
+	int hash_strategy;
+
+	if (!(var_name = tpm_efi_variable_event_extract_full_varname(parsed)))
+		fatal("Unable to extract EFI variable name from EFI_VARIABLE event\n");
+
+	old_md = tpm_event_get_digest(ev, algo->openssl_name);
+	if (old_md == NULL) {
+		debug("Event does not provide a digest for algorithm %s\n", algo->openssl_name);
+		return NULL;
+	}
+
+	if (!strcmp(var_name, "KEK-8be4df61-93ca-11d2-aa0d-00e098032b8c")
+	 || !strcmp(var_name, "db-d719b2cb-3d3a-4596-a3bc-dad00e67656f")
+	 || !strcmp(var_name, "dbx-d719b2cb-3d3a-4596-a3bc-dad00e67656f")
+	 || !strcmp(var_name, "SbatLevel-605dab50-e046-4300-abb6-3dd810dd8b23")) {
+		debug("EFI variable %s is protected from kernel runtime; assuming it did not change\n", var_name);
+		return old_md;
+	}
+
+	/* UEFI implementations seem to differ in what they hash. Some Dell firmwares
+	 * always seem to hash the entire event. The OVMF firmware, on the other hand,
+	 * hashes the log for EFI_VARIABLE_DRIVER_CONFIG events, and just the data for
+	 * other variable events. */
+	md = digest_compute(algo, ev->event_data, ev->event_size);
+	if (digest_equal(old_md, md)) {
+		debug("  Firmware hashed entire event data\n");
+		hash_strategy = HASH_STRATEGY_EVENT;
+	} else {
+		md = digest_compute(algo, parsed->efi_variable_event.data, parsed->efi_variable_event.len);
+		if (digest_equal(old_md, md)) {
+			debug("  Firmware hashed variable data\n");
+			hash_strategy = HASH_STRATEGY_DATA;
+		} else {
+			debug("  I'm lost.\n");
+			hash_strategy = HASH_STRATEGY_DATA; /* no idea what would be right */
+		}
+	}
+
+	file_data = runtime_read_efi_variable(var_name);
+	if (file_data == NULL)
+		return NULL;
+
+	if (hash_strategy == HASH_STRATEGY_EVENT) {
+		event_data = __tpm_event_efi_variable_build_event(parsed,
+				buffer_read_pointer(file_data),
+				buffer_available(file_data));
+		if (event_data == NULL)
+			fatal("Unable to re-marshal EFI variable for hashing\n");
+
+		if (opt_debug > 1) {
+			debug("  Remarshaled event for EFI variable %s:\n", var_name);
+			hexdump(buffer_read_pointer(event_data),
+				buffer_available(event_data),
+				debug, 8);
+		 }
+
+		data_to_hash = event_data;
+	} else {
+		data_to_hash = file_data;
+	}
+
+	md = digest_compute(algo,
+			buffer_read_pointer(data_to_hash),
+			buffer_available(data_to_hash));
+
+	buffer_free(file_data);
+	if (event_data)
+		buffer_free(event_data);
+	return md;
+}
+
 bool
 __tpm_event_parse_efi_variable(tpm_event_t *ev, tpm_parsed_event_t *parsed, buffer_t *bp)
 {
@@ -101,7 +184,7 @@ __tpm_event_parse_efi_variable(tpm_event_t *ev, tpm_parsed_event_t *parsed, buff
 
 	parsed->destroy = __tpm_event_efi_variable_destroy;
 	parsed->print = __tpm_event_efi_variable_print;
-	parsed->rebuild = __tpm_event_efi_variable_rebuild;
+	parsed->rehash = __tpm_event_efi_variable_rehash;
 
 	if (!buffer_get(bp, parsed->efi_variable_event.variable_guid, sizeof(parsed->efi_variable_event.variable_guid)))
 		return false;
@@ -121,7 +204,7 @@ __tpm_event_parse_efi_variable(tpm_event_t *ev, tpm_parsed_event_t *parsed, buff
 }
 
 const char *
-tpm_efi_variable_event_extract_full_varname(tpm_parsed_event_t *parsed)
+tpm_efi_variable_event_extract_full_varname(const tpm_parsed_event_t *parsed)
 {
 	static char varname[256];
 

@@ -172,9 +172,11 @@ enum {
 typedef struct tpm_parsed_event {
 	unsigned int		event_type;
 	unsigned int		event_subtype;		/* for grub command, grub file, which are encoded as IPL events */
+	const char *		(*describe)(const struct tpm_parsed_event *);
 	void			(*destroy)(struct tpm_parsed_event *);
 	void			(*print)(struct tpm_parsed_event *, tpm_event_bit_printer *);
 	struct buffer *		(*rebuild)(const struct tpm_parsed_event *, const void *raw_data, unsigned int raw_data_len);
+	const tpm_evdigest_t *	(*rehash)(const tpm_event_t *, const struct tpm_parsed_event *, const tpm_algo_info_t *);
 
 	union {
 		struct {
@@ -215,12 +217,13 @@ extern void			__tpm_event_print(tpm_event_t *ev, tpm_event_bit_printer *print_fn
 extern tpm_parsed_event_t *	tpm_event_parse(tpm_event_t *ev);
 extern const char *		tpm_event_type_to_string(unsigned int event_type);
 extern const tpm_evdigest_t *	tpm_event_get_digest(const tpm_event_t *ev, const char *algo_name);
-extern const char *		tpm_efi_variable_event_extract_full_varname(tpm_parsed_event_t *parsed);
 extern bool			tpm_efi_bsa_event_extract_location(tpm_parsed_event_t *parsed,
 					char **dev_ret, char **path_ret);
 extern void			tpm_parsed_event_print(tpm_parsed_event_t *parsed,
 					tpm_event_bit_printer *);
+extern const char *		tpm_parsed_event_describe(tpm_parsed_event_t *parsed);
 extern struct buffer *		tpm_parsed_event_rebuild(tpm_parsed_event_t *, const void *, unsigned int);
+extern const tpm_evdigest_t *	tpm_parsed_event_rehash(const tpm_event_t *, const tpm_parsed_event_t *, const tpm_algo_info_t *);
 
 struct buffer; /* fwd decl */
 
@@ -233,6 +236,7 @@ extern void			__tpm_event_efi_device_path_destroy(efi_device_path_t *path);
 extern const char *		__tpm_event_efi_device_path_item_harddisk_uuid(const struct efi_device_path_item *);
 extern const char *		__tpm_event_efi_device_path_item_file_path(const struct efi_device_path_item *);
 
+extern const char *		tpm_efi_variable_event_extract_full_varname(const tpm_parsed_event_t *parsed);
 extern const char *		tpm_event_decode_uuid(const unsigned char *data);
 
 #endif /* EVENTLOG_H */

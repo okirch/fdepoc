@@ -429,6 +429,18 @@ tpm_parsed_event_free(tpm_parsed_event_t *parsed)
 	free(parsed);
 }
 
+const char *
+tpm_parsed_event_describe(tpm_parsed_event_t *parsed)
+{
+	if (!parsed)
+		return NULL;
+
+	if (!parsed->describe)
+		return tpm_event_type_to_string(parsed->event_type);
+
+	return parsed->describe(parsed);
+}
+
 void
 tpm_parsed_event_print(tpm_parsed_event_t *parsed, tpm_event_bit_printer *print_fn)
 {
@@ -441,6 +453,18 @@ tpm_parsed_event_rebuild(tpm_parsed_event_t *parsed, const void *raw_data, unsig
 {
 	if (parsed && parsed->rebuild)
 		return parsed->rebuild(parsed, raw_data, raw_data_len);
+
+	return NULL;
+}
+
+const tpm_evdigest_t *
+tpm_parsed_event_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, const tpm_algo_info_t *algo)
+{
+	if (!parsed)
+		return NULL;
+
+	if (parsed->rehash)
+		return parsed->rehash(ev, parsed, algo);
 
 	return NULL;
 }
