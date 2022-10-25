@@ -557,6 +557,7 @@ predictor_update_eventlog(struct predictor *pred)
 
 			switch (ev->event_type) {
 			case TPM2_EFI_BOOT_SERVICES_APPLICATION:
+			case TPM2_EFI_BOOT_SERVICES_DRIVER:
 			case TPM2_EFI_VARIABLE_BOOT:
 			case TPM2_EFI_VARIABLE_AUTHORITY:
 			case TPM2_EFI_VARIABLE_DRIVER_CONFIG:
@@ -572,15 +573,12 @@ predictor_update_eventlog(struct predictor *pred)
 			 * EFI_GPT_EVENT: used in updates of PCR5, seems to be a hash of several GPT headers.
 			 *	We should probably rebuild in case someone changed the partitioning.
 			 *	However, not needed as long as we don't seal against PCR5.
-			 * EFI_VARIABLE_DRIVER_CONFIG: all the secure boot variables get hashed into this,
-			 *	including PK, dbx, etc.
 			 */
 
 			case TPM2_EVENT_NO_ACTION:
 			case TPM2_EVENT_S_CRTM_CONTENTS:
 			case TPM2_EVENT_S_CRTM_VERSION:
 			case TPM2_EFI_PLATFORM_FIRMWARE_BLOB:
-			case TPM2_EFI_BOOT_SERVICES_DRIVER:
 			case TPM2_EVENT_SEPARATOR:
 			case TPM2_EVENT_POST_CODE:
 			case TPM2_EFI_HANDOFF_TABLES:

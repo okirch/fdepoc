@@ -133,7 +133,7 @@ __tpm_event_efi_bsa_extract_location(const tpm_parsed_event_t *parsed, char **de
 
 			snprintf(pathbuf, sizeof(pathbuf), "/dev/disk/by-partuuid/%s", uuid);
 			if ((dev_path = realpath(pathbuf, NULL)) == NULL) {
-				fprintf(stderr, "Error: cannot find device for partition with uuid %s\n", uuid);
+				error("Cannot find device for partition with uuid %s\n", uuid);
 				return false;
 			}
 
@@ -251,8 +251,9 @@ __tpm_event_efi_bsa_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *pars
 	const tpm_evdigest_t *md;
 
 	if (!__tpm_event_efi_bsa_extract_location(parsed, &ctx->efi_partition, &efi_application)) {
-		error("Unable to locate updated boot service application\n");
-		return NULL;
+		debug("Unable to locate boot service application - probably not a file\n");
+		/* return the original digest from the event log */
+		return tpm_event_get_digest(ev, ctx->algo->openssl_name);
 	}
 
 	md = __efi_application_rehash(ctx, ctx->efi_partition, efi_application);
