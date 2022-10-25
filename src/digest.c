@@ -148,6 +148,12 @@ digest_compute(const tpm_algo_info_t *algo_info, const void *data, unsigned int 
 }
 
 const tpm_evdigest_t *
+digest_buffer(const tpm_algo_info_t *algo_info, struct buffer *buffer)
+{
+	return digest_compute(algo_info, buffer_read_pointer(buffer), buffer_available(buffer));
+}
+
+const tpm_evdigest_t *
 digest_from_file(const tpm_algo_info_t *algo_info, const char *filename, int flags)
 {
 	const tpm_evdigest_t *md;
