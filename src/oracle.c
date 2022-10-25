@@ -19,7 +19,6 @@
  */
 
 #include <openssl/evp.h>
-#include <sys/mount.h>
 #include <getopt.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -419,12 +418,6 @@ predictor_compute_digest(struct predictor *pred, const void *data, unsigned int 
 	return digest_compute(pred->algo_info, data, size);
 }
 
-static digest_ctx_t *
-predictor_create_digest_ctx(struct predictor *pred)
-{
-	return digest_ctx_new(pred->algo_info);
-}
-
 static const tpm_evdigest_t *
 predictor_compute_file_digest(struct predictor *pred, const char *filename, int flags)
 {
@@ -437,112 +430,6 @@ predictor_compute_file_digest(struct predictor *pred, const char *filename, int 
 			buffer_read_pointer(buffer),
 			buffer_available(buffer));
 	buffer_free(buffer);
-
-	return md;
-}
-
-static const tpm_evdigest_t *
-__predictor_compute_pecoff_digest_old(struct predictor *pred, const char *filename)
-{
-	char cmdbuf[8192], linebuf[1024];
-	const tpm_evdigest_t *md = NULL;
-	FILE *fp;
-
-	snprintf(cmdbuf, sizeof(cmdbuf),
-			"pesign --hash --in %s --digest_type %s",
-			filename, pred->algo);
-
-	debug("Executing command: %s\n", cmdbuf);
-	if ((fp = popen(cmdbuf, "r")) == NULL)
-		fatal("Unable to run command: %s\n", cmdbuf);
-
-	while (fgets(linebuf, sizeof(linebuf), fp) != NULL) {
-		char *w;
-
-		/* line must start with "hash:" */
-		if (!(w = strtok(linebuf, " \t\n:")) || strcmp(w, "hash"))
-			continue;
-
-		if (!(w = strtok(NULL, " \t\n")))
-			fatal("cannot parse pesign output\n");
-
-		if (!(md = parse_digest(w, pred->algo)))
-			fatal("unable to parse %s digest printed by pesign: \"%s\"\n", pred->algo, w);
-
-		debug("  pesign digest: %s\n", digest_print(md));
-		break;
-	}
-
-	if (fclose(fp) != 0)
-		fatal("pesign command failed: %m\n");
-
-	return md;
-}
-
-static const tpm_evdigest_t *
-__predictor_compute_pecoff_digest_new(struct predictor *pred, const char *filename)
-{
-	digest_ctx_t *digest;
-	const tpm_evdigest_t *md;
-	buffer_t *buffer;
-
-	debug("Computing authenticode digest using built-in PECOFF parser\n");
-	if (!(buffer = runtime_read_file(filename, 0)))
-		return NULL;
-
-	digest = predictor_create_digest_ctx(pred);
-
-	md = authenticode_get_digest(buffer, digest);
-
-	buffer_free(buffer);
-	digest_ctx_free(digest);
-
-	return md;
-}
-
-static const tpm_evdigest_t *
-predictor_compute_pecoff_digest(struct predictor *pred, const char *filename)
-{
-	if (opt_use_pesign)
-		return __predictor_compute_pecoff_digest_old(pred, filename);
-
-	return __predictor_compute_pecoff_digest_new(pred, filename);
-}
-
-static const tpm_evdigest_t *
-predictor_compute_efi_file_digest(struct predictor *pred, unsigned int pcr_index, const char *device_path, const char *file_path)
-{
-	const tpm_evdigest_t *md;
-	char display_path[PATH_MAX];
-	char fullpath[PATH_MAX];
-	char template[] = "/tmp/efimnt.XXXXXX";
-	char *dirname;
-
-	snprintf(display_path, sizeof(display_path), "(%s)%s", device_path, file_path);
-	debug("Updating PCR %d with %s\n", pcr_index, display_path);
-
-	if (!(dirname = mkdtemp(template)))
-		fatal("Cannot create temporary mount point for EFI partition");
-
-	if (mount(device_path, dirname, "vfat", 0, NULL) < 0) {
-		(void) rmdir(dirname);
-		fatal("Unable to mount %s on %s\n", device_path, dirname);
-	}
-
-	/* This is not correct; the proper thing to do here is to use libpde from
-	 * pesign to compute the hash of the PE COFF binary in AuthentiCode style.
-	 * Alternatively, we could implement a facility that lets the user pass
-	 * the digest. This could be used to give us the output of
-	 *  pesign --hash --in $path_of_efi_binary --digest_type sha256
-	 */
-	snprintf(fullpath, sizeof(fullpath), "%s/%s", dirname, file_path);
-	md = predictor_compute_pecoff_digest(pred, fullpath);
-
-	if (umount(dirname) < 0)
-		fatal("unable to unmount temporary directory %s: %m\n", dirname);
-
-	if (rmdir(dirname) < 0)
-		fatal("unable to remove temporary directory %s: %m\n", dirname);
 
 	return md;
 }
@@ -564,19 +451,6 @@ predictor_update_file(struct predictor *pred, unsigned int pcr_index, const char
 
 	md = predictor_compute_file_digest(pred, filename, 0);
 	predictor_extend_hash(pred, pcr_index, md);
-}
-
-static const tpm_evdigest_t *
-predictor_compute_boot_services_application(struct predictor *pred, tpm_event_t *ev,
-		tpm_parsed_event_t *parsed,
-		char **efi_partition_p, char **efi_application_p)
-{
-	if (!tpm_efi_bsa_event_extract_location(parsed, efi_partition_p, efi_application_p)) {
-		error("Unable to locate updated boot service application\n");
-		return NULL;
-	}
-
-	return predictor_compute_efi_file_digest(pred, ev->pcr_index, *efi_partition_p, *efi_application_p);
 }
 
 static bool
@@ -640,11 +514,12 @@ __check_stop_event(tpm_event_t *ev, int type, const char *value)
 static void
 predictor_update_eventlog(struct predictor *pred)
 {
-	char *efi_partition = NULL, *efi_application = NULL;
 	tpm_event_log_rehash_ctx_t rehash_ctx;
 	tpm_event_t *ev;
 
 	tpm_event_log_rehash_ctx_init(&rehash_ctx, pred->algo_info);
+	rehash_ctx.use_pesign = opt_use_pesign;
+
 	for (ev = pred->event_log; ev; ev = ev->next) {
 		tpm_evdigest_t *pcr;
 		bool stop = false;
@@ -682,13 +557,6 @@ predictor_update_eventlog(struct predictor *pred)
 
 			switch (ev->event_type) {
 			case TPM2_EFI_BOOT_SERVICES_APPLICATION:
-				if (!(parsed = tpm_event_parse(ev)))
-					fatal("Unable to parse %s event from TPM log\n", tpm_event_type_to_string(ev->event_type));
-
-				new_digest = predictor_compute_boot_services_application(pred, ev, parsed, &efi_partition, &efi_application);
-				description = efi_application;
-				break;
-
 			case TPM2_EFI_VARIABLE_BOOT:
 			case TPM2_EFI_VARIABLE_AUTHORITY:
 			case TPM2_EFI_VARIABLE_DRIVER_CONFIG:
@@ -752,8 +620,6 @@ predictor_update_eventlog(struct predictor *pred)
 	}
 
 	tpm_event_log_rehash_ctx_destroy(&rehash_ctx);
-	drop_string(&efi_partition);
-	drop_string(&efi_application);
 }
 
 static const char *

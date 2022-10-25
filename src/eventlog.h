@@ -172,6 +172,7 @@ enum {
  */
 typedef struct tpm_event_log_rehash_ctx {
 	const tpm_algo_info_t *	algo;
+	bool			use_pesign;		/* compute authenticode FP using external pesign application */
 	char *			efi_partition;
 } tpm_event_log_rehash_ctx_t;
 
@@ -231,8 +232,6 @@ extern void			tpm_event_log_rehash_ctx_destroy(tpm_event_log_rehash_ctx_t *);
 extern tpm_parsed_event_t *	tpm_event_parse(tpm_event_t *ev);
 extern const char *		tpm_event_type_to_string(unsigned int event_type);
 extern const tpm_evdigest_t *	tpm_event_get_digest(const tpm_event_t *ev, const char *algo_name);
-extern bool			tpm_efi_bsa_event_extract_location(tpm_parsed_event_t *parsed,
-					char **dev_ret, char **path_ret);
 extern void			tpm_parsed_event_print(tpm_parsed_event_t *parsed,
 					tpm_event_bit_printer *);
 extern const char *		tpm_parsed_event_describe(tpm_parsed_event_t *parsed);
