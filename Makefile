@@ -2,23 +2,9 @@ PKGNAME		= fde-tools-0.3
 
 CCOPT		= -O0 -g
 FIRSTBOOTDIR	= /usr/share/jeos-firstboot
-CFLAGS		= -Wall -I /usr/include/tss2 $(CCOPT)
-FAPI_LINK	= -ltss2-fapi -lcrypto
+CFLAGS		= -Wall $(CCOPT)
 FIDO_LINK	= -lfido2 -lcrypto
-TOOLS		= pcr-oracle fde-token
-
-ORACLE_SRCS	= oracle.c \
-		  eventlog.c \
-		  efi-devpath.c \
-		  efi-variable.c \
-		  efi-application.c \
-		  efi-gpt.c \
-		  digest.c \
-		  runtime.c \
-		  authenticode.c \
-		  ima.c \
-		  util.c
-ORACLE_OBJS	= $(addprefix build/,$(patsubst %.c,%.o,$(ORACLE_SRCS)))
+TOOLS		= fde-token
 
 all: $(TOOLS)
 
@@ -33,9 +19,6 @@ install::
 clean:
 	rm -f $(TOOLS)
 	rm -rf build
-
-pcr-oracle: $(ORACLE_OBJS)
-	$(CC) -o $@ $(ORACLE_OBJS) $(FAPI_LINK)
 
 fde-token: build/fde-token.o
 	$(CC) -o $@ $< $(FIDO_LINK)
