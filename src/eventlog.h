@@ -87,6 +87,8 @@ enum {
 	GRUB_EVENT_COMMAND		     = 0x0001,
 	GRUB_EVENT_FILE			     = 0x0002,
 	GRUB_EVENT_KERNEL_CMDLINE	     = 0x0003,
+	SHIM_EVENT_MOKLIST		     = 0x0004,
+	SHIM_EVENT_MOKLIST_X		     = 0x0005,
 };
 
 #define EFI_DEVICE_PATH_MAX		16
@@ -220,6 +222,10 @@ typedef struct tpm_parsed_event {
 			char *		device;
 			char *		path;
 		} grub_file;
+
+		struct shim_event {
+			char *		string;
+		} shim_event;
 
 		struct efi_gpt_event {
 			char *		disk_device;

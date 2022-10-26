@@ -34,6 +34,7 @@
 
 #include "eventlog.h"
 #include "bufparser.h"
+#include "runtime.h"
 #include "util.h"
 
 #define TPM_EVENT_LOG_MAX_ALGOS		64
@@ -410,6 +411,23 @@ __tpm_event_print(tpm_event_t *ev, tpm_event_bit_printer *print_fn)
 	hexdump(ev->event_data, ev->event_size, print_fn, 8);
 }
 
+static const tpm_evdigest_t *
+__tpm_event_rehash_efi_variable(const char *var_name, tpm_event_log_rehash_ctx_t *ctx)
+{
+	const tpm_evdigest_t *md;
+	buffer_t *data;
+
+	data = runtime_read_efi_variable(var_name);
+	if (data == NULL) {
+		error("Unable to read EFI variable %s\n", var_name);
+		return NULL;
+	}
+
+	md = digest_buffer(ctx->algo, data);
+	buffer_free(data);
+	return md;
+}
+
 static tpm_parsed_event_t *
 tpm_parsed_event_new(unsigned int event_type)
 {
@@ -518,16 +536,21 @@ __tpm_event_grub_file_describe(const tpm_parsed_event_t *parsed)
 static const tpm_evdigest_t *
 __tpm_event_grub_file_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, tpm_event_log_rehash_ctx_t *ctx)
 {
+	const struct grub_file_event *evspec = &parsed->grub_file;
 	char path[PATH_MAX], *filename;
 
 	debug("  re-hashing %s\n", __tpm_event_grub_file_describe(parsed));
-	if (parsed->grub_file.device) {
-		debug("  assuming the file to reside on EFI boot partition\n");
-		snprintf(path, sizeof(path), "/boot/efi%s", parsed->grub_file.path);
-		filename = path;
-	} else {
+	if (evspec->device == NULL) {
 		debug("  assuming the file to reside on system partition\n");
-		filename = parsed->grub_file.path;
+		filename = evspec->path;
+	} else
+	if (!strcmp(evspec->device, "crypto0")) {
+		debug("  assuming the file to reside on system partition\n");
+		filename = evspec->path;
+	} else {
+		debug("  assuming the file to reside on EFI boot partition\n");
+		snprintf(path, sizeof(path), "/boot/efi%s", evspec->path);
+		filename = path;
 	}
 
 	if (access(filename, R_OK) < 0) {
@@ -659,6 +682,62 @@ __tpm_event_grub_command_event_parse(tpm_event_t *ev, tpm_parsed_event_t *parsed
 	return true;
 }
 
+static void
+__tpm_event_shim_destroy(tpm_parsed_event_t *parsed)
+{
+	drop_string(&parsed->shim_event.string);
+}
+
+static const char *
+__tpm_event_shim_describe(const tpm_parsed_event_t *parsed)
+{
+	if (parsed->event_subtype == SHIM_EVENT_MOKLIST)
+		return "shim loader MokList event";
+	if (parsed->event_subtype == SHIM_EVENT_MOKLIST_X)
+		return "shim loader MokListX event";
+	return "shim event";
+}
+
+static const tpm_evdigest_t *
+__tpm_event_shim_rehash(const tpm_event_t *ev, const tpm_parsed_event_t *parsed, tpm_event_log_rehash_ctx_t *ctx)
+{
+	if (parsed->event_subtype == SHIM_EVENT_MOKLIST)
+		return __tpm_event_rehash_efi_variable("MokListRT-605dab50-e046-4300-abb6-3dd810dd8b23", ctx);
+	if (parsed->event_subtype == SHIM_EVENT_MOKLIST_X)
+		return __tpm_event_rehash_efi_variable("MokListXRT-605dab50-e046-4300-abb6-3dd810dd8b23", ctx);
+
+	return NULL;
+}
+
+/*
+ * This event holds stuff like
+ *  grub_cmd: ....
+ *  kernel_cmdline: ...
+ */
+static bool
+__tpm_event_shim_event_parse(tpm_event_t *ev, tpm_parsed_event_t *parsed, const char *value)
+{
+	struct shim_event *evspec = &parsed->shim_event;
+
+	if (!strcmp(value, "MokList")) {
+		parsed->event_subtype = SHIM_EVENT_MOKLIST;
+	} else
+	if (!strcmp(value, "MokListX")) {
+		parsed->event_subtype = SHIM_EVENT_MOKLIST_X;
+	} else {
+		error("Unknown shim IPL event %s\n", value);
+		return NULL;
+	}
+
+	evspec->string = strdup(value);
+
+	parsed->destroy = __tpm_event_shim_destroy;
+	parsed->rehash = __tpm_event_shim_rehash;
+	parsed->describe = __tpm_event_shim_describe;
+
+	return true;
+}
+
 
 static bool
 __tpm_event_parse_ipl(tpm_event_t *ev, tpm_parsed_event_t *parsed, buffer_t *bp)
@@ -669,7 +748,7 @@ __tpm_event_parse_ipl(tpm_event_t *ev, tpm_parsed_event_t *parsed, buffer_t *bp)
 	if (len == 0 || *value == '\0')
 		return false;
 
-	/* ATM, grub2 records the string including its trailing NUL byte */
+	/* ATM, grub2 and shim seem to record the string including its trailing NUL byte */
 	if (value[len - 1] != '\0')
 		return false;
 
@@ -678,6 +757,9 @@ __tpm_event_parse_ipl(tpm_event_t *ev, tpm_parsed_event_t *parsed, buffer_t *bp)
 
 	if (ev->pcr_index == 9)
 		return __tpm_event_grub_file_event_parse(ev, parsed, value);
+
+	if (ev->pcr_index == 14)
+		return __tpm_event_shim_event_parse(ev, parsed, value);
 
 	return false;
 }
