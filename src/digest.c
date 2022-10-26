@@ -176,6 +176,18 @@ digest_equal(const tpm_evdigest_t *a, const tpm_evdigest_t *b)
 	return a->algo == b->algo && a->size == b->size && !memcmp(a->data, b->data, a->size);
 }
 
+bool
+digest_is_zero(const tpm_evdigest_t *md)
+{
+	unsigned int i;
+	unsigned char x = 0;
+
+	for (i = 0; i < md->size; ++i)
+		x |= md->data[i];
+
+	return x == 0;
+}
+
 struct digest_ctx {
 	EVP_MD_CTX *	mdctx;
 
