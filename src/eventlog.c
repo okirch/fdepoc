@@ -212,7 +212,7 @@ again:
 
 	if (log->tpm_version == 1 && ev->event_type == TPM2_EVENT_NO_ACTION
 	 && !strncmp((char *) ev->event_data, "Spec ID Event03", 16)) {
-		printf("Detected TPMv2 event log\n");
+		debug("Detected TPMv2 event log\n");
 
 		if (!__tpm_event_parse_tcg2_info(ev, &log->tcg2_info))
 			fatal("Unable to parse TCG2 magic event header");

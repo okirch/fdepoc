@@ -77,6 +77,7 @@ enum {
 	OPT_STOP_EVENT,
 	OPT_AFTER,
 	OPT_BEFORE,
+	OPT_VERIFY,
 };
 
 static struct option options[] = {
@@ -90,6 +91,7 @@ static struct option options[] = {
 	{ "stop-event",		required_argument,	0,	OPT_STOP_EVENT },
 	{ "after",		no_argument,		0,	OPT_AFTER },
 	{ "before",		no_argument,		0,	OPT_BEFORE },
+	{ "verify",		required_argument,	0,	OPT_VERIFY },
 	{ "use-pesign",		no_argument,		0,	OPT_USE_PESIGN },
 
 	{ NULL }
@@ -113,15 +115,11 @@ usage(int exitval, const char *msg)
 		"pcr-oracle [options] pcr-index [updates...]\n"
 		"\n"
 		"The following options are recognized:\n"
-		"  --from SOURCE          Initialize PCR predictor from indicated source, which must be one of:\n"
-		"                          zero: assume a PCR state of all zero\n"
-		"                          current: set the PCR state to the current state of the host's PCR\n"
-		"                          snapshot: read the PCR state from a snapshot taken during boot (GrubPcrSnapshot EFI variable)\n"
-		"                          eventlog: predict the PCR state using the event log, by substituting current values\n"
+		"  --from SOURCE          Initialize PCR predictor from indicated source (see below)\n"
 		"  -A name, --algorithm name\n"
 		"                         Use hash algorithm <name>. Defaults to sha256\n"
 		"  -F name, --output-format name\n"
-		"                         Specify how to display the resulting PCR value. The default is \"plain\",\n"
+		"                         Specify how to display the resulting PCR values. The default is \"plain\",\n"
 		"                         which just prints the value as a hex string. When using \"tpm2-tools\", the\n"
 		"                         output string is formatted to resemble the output of tpm2_pcrread.\n"
 		"                         Finally, \"binary\" writes our the raw binary data so that it can be consumed\n"
@@ -135,6 +133,17 @@ usage(int exitval, const char *msg)
 		"                         The default behavior when using --stop-event is to stop processing the\n"
 		"                         event log before the indicated event. Using the --after option instructs\n"
 		"                         pcr-oracle to stop after processing the event.\n"
+		"  --verify SOURCE        After applying all updates, compare the prediction against the given SOURCE (see below).\n"
+		"\n"
+		"The pcr-index argument can be one or more PCR indices or index ranges, separated by comma.\n"
+		"Using \"all\" selects all applicable PCR registers.\n"
+		"\n"
+		"Valid PCR sources for the --from and --verify options include:\n"
+                "  zero                   Initialize PCR state to all zero\n"
+                "  current                Set the PCR state to the current state of the host's PCR\n"
+                "  snapshot               Read the PCR state from a snapshot taken during boot (GrubPcrSnapshot EFI variable)\n"
+                "  eventlog               Predict the PCR state using the event log, by substituting current values. Only valid\n"
+                "                         as argument to --from.\n"
 		"\n"
 		"The PCR index can be followed by zero or more pairs of data describing how to extend the PCR.\n"
 		"Each pair is a type, and and argument. These types are currently recognized:\n"
@@ -718,6 +727,9 @@ predictor_update_all(struct predictor *pred, int argc, char **argv)
 {
 	int i = 0, pcr_index = -1;
 
+	if (!strcmp(pred->initial_source, "eventlog"))
+		predictor_update_eventlog(pred);
+
 	/* If the mask contains exactly one PCR, default pcr_index to that */
 	if (!(pred->pcr_mask & (pred->pcr_mask - 1))) {
 		unsigned int mask = pred->pcr_mask;
@@ -760,13 +772,54 @@ predictor_update_all(struct predictor *pred, int argc, char **argv)
 	}
 }
 
+static unsigned int
+predictor_verify(struct predictor *pred, const char *source)
+{
+	tpm_pcr_bank_t actual;
+	unsigned int pcr_index;
+	unsigned int num_mismatches = 0;
+
+	printf("Verifying predicted state versus \"%s\"\n", source);
+	pcr_bank_load_initial_values(&actual, pred->pcr_mask, pred->algo_info, source);
+
+	/* Now compare the digests */
+	for (pcr_index = 0; pcr_index < PREDICTOR_PCR_MAX; ++pcr_index) {
+		tpm_evdigest_t *md_predicted, *md_actual;
+
+		md_predicted = pcr_bank_get_register(&pred->prediction, pcr_index, NULL);
+		md_actual = pcr_bank_get_register(&actual, pcr_index, NULL);
+		if (md_predicted == NULL)
+			continue;
+
+		if (md_actual == NULL) {
+			/* quietly skip any PCRs we never extended.
+			 * This happens when the PCR mask was "all" */
+			if (digest_is_zero(md_predicted))
+				continue;
+
+			error("Predicted value for PCR %s:%u, but there is no actual value to compare to\n",
+					pred->algo, pcr_index, source);
+			continue;
+		}
+
+		if (digest_equal(md_predicted, md_actual)) {
+			printf("%s:%u %s OK\n", pred->algo, pcr_index, digest_print_value(md_predicted));
+		} else {
+			printf("%s:%u %s MISMATCH", pred->algo, pcr_index, digest_print_value(md_predicted));
+			printf("; actual=%s\n", digest_print_value(md_actual));
+			num_mismatches += 1;
+		}
+	}
+
+	if (num_mismatches)
+		error("Found %u mismatches\n", num_mismatches);
+	return num_mismatches;
+}
+
 static void
 predictor_report(struct predictor *pred)
 {
 	unsigned int pcr_index;
-
-	if (!strcmp(pred->initial_source, "eventlog"))
-		predictor_update_eventlog(pred);
 
 	for (pcr_index = 0; pcr_index < PREDICTOR_PCR_MAX; ++pcr_index) {
 		pred->report_fn(pred, pcr_index);
@@ -824,7 +877,8 @@ main(int argc, char **argv)
 	char *opt_output_format = NULL;
 	char *opt_stop_event = NULL;
 	bool opt_stop_before = true;
-	int c;
+	char *opt_verify = NULL;
+	int c, exit_code = 0;
 
 	while ((c = getopt_long(argc, argv, "dhA:CF:LSZ", options, NULL)) != EOF) {
 		switch (c) {
@@ -864,6 +918,9 @@ main(int argc, char **argv)
 		case OPT_BEFORE:
 			opt_stop_before = true;
 			break;
+		case OPT_VERIFY:
+			opt_verify = optarg;
+			break;
 		case 'h':
 			usage(0, NULL);
 		default:
@@ -887,7 +944,10 @@ main(int argc, char **argv)
 
 	predictor_update_all(pred, argc - optind, argv + optind);
 
-	predictor_report(pred);
+	if (opt_verify)
+		exit_code = !!predictor_verify(pred, opt_verify);
+	else
+		predictor_report(pred);
 
-	return 0;
+	return exit_code;
 }
