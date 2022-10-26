@@ -57,6 +57,11 @@ parse_pcr_mask(const char *word, uint32_t *ret)
 	unsigned int value;
 	const char *end;
 
+	if (!strcmp(word, "all")) {
+		*ret = ~0;
+		return true;
+	}
+
 	*ret = 0;
 	while (*word) {
 		if (!isdigit(*word))
@@ -101,7 +106,7 @@ print_pcr_mask(unsigned int mask)
 				*pos++ = ',';
 			if (mask & (1 << (i + 1))) {
 				pos += sprintf(pos, "%u-", i);
-				while (mask & (1 << (i + 1)))
+				while (i < 32 && (mask & (1 << (i + 1))))
 					++i;
 			}
 			pos += sprintf(pos, "%u", i);

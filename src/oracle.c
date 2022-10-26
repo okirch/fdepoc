@@ -161,6 +161,7 @@ pcr_bank_initialize(tpm_pcr_bank_t *bank, unsigned int pcr_mask, const tpm_algo_
 {
 	unsigned int i;
 
+	memset(bank, 0, sizeof(*bank));
 	bank->algo_name = algo->openssl_name;
 	bank->pcr_mask = pcr_mask;
 
@@ -182,6 +183,12 @@ static inline void
 pcr_bank_mark_valid(tpm_pcr_bank_t *bank, unsigned int index)
 {
 	bank->valid_mask |= (1 << index);
+}
+
+static inline bool
+pcr_bank_register_is_valid(const tpm_pcr_bank_t *bank, unsigned int index)
+{
+	return (bank->valid_mask & (1 << index));
 }
 
 static inline tpm_evdigest_t *
@@ -285,7 +292,7 @@ pcr_bank_init_from_current(tpm_pcr_bank_t *bank)
 	if (rc != 0)
 		fapi_error("Fapi_Initialize", rc);
 
-	for (i = 0; i < PREDICTOR_PCR_MAX; ++i) {
+	for (i = 0; i < 24; ++i) {
 		tpm_evdigest_t *pcr;
 
 		if (!(pcr = pcr_bank_get_register(bank, i, "sha256")))
@@ -304,6 +311,13 @@ pcr_bank_init_from_current(tpm_pcr_bank_t *bank)
 					algo_name, i,
 					(int) digest_sizes[0], pcr->size);
 		memcpy(pcr->data, digests[0], pcr->size);
+
+		if (digest_is_invalid(pcr)) {
+			if (opt_debug > 1)
+				debug("ignoring PCR %u; %s\n", i, digest_print(pcr));
+			continue;
+		}
+
 		pcr_bank_mark_valid(bank, i);
 		Fapi_Free(digests[0]);
 	}
@@ -322,9 +336,6 @@ pcr_bank_load_initial_values(tpm_pcr_bank_t *bank, unsigned int pcr_mask, const 
 		pcr_bank_init_from_snapshot(bank);
 	else
 		fatal("don't know how to load PCR bank with initial values: unsupported source \"%s\"\n", source);
-
-	if (bank->pcr_mask != bank->valid_mask)
-		fatal("Could not initialize all required PCR values from %s\n", source);
 }
 
 static inline tpm_evdigest_t *
@@ -333,7 +344,8 @@ predictor_get_pcr_state(struct predictor *pred, unsigned int index, const char *
 	return pcr_bank_get_register(&pred->prediction, index, algo);
 }
 
-static void
+/* NUKEME */
+static inline void
 pcr_state_update(tpm_evdigest_t *pcr, const EVP_MD *md, const tpm_evdigest_t *d)
 {
 	EVP_MD_CTX *mdctx;
@@ -459,16 +471,32 @@ predictor_set_stop_event(struct predictor *pred, const char *event_desc, bool af
 }
 
 static void
-predictor_extend_hash(struct predictor *pred, unsigned int pcr_index, const tpm_evdigest_t *d)
+pcr_bank_extend_register(tpm_pcr_bank_t *bank, unsigned int pcr_index, const tpm_evdigest_t *d)
 {
 	tpm_evdigest_t *pcr;
+	digest_ctx_t *dctx;
 
-	if (!(pcr = predictor_get_pcr_state(pred, pcr_index, NULL))) {
-		debug("Ignoring Extend for PCR %s:%u\n", pred->algo, pcr_index);
+	if (!pcr_bank_register_is_valid(bank, pcr_index)) {
+		error("Unable to extend PCR %s:%u: register was not initialized\n",
+				bank->algo_name, pcr_index);
 		return;
 	}
 
-	pcr_state_update(pcr, pred->md, d);
+	pcr = &bank->pcr[pcr_index];
+	if (pcr->algo != d->algo)
+		fatal("Cannot update PCR %u: algorithm mismatch\n", pcr_index);
+
+	dctx = digest_ctx_new(pcr->algo);
+	digest_ctx_update(dctx, pcr->data, pcr->size);
+	digest_ctx_update(dctx, d->data, d->size);
+	digest_ctx_final(dctx, pcr);
+	digest_ctx_free(dctx);
+}
+
+static void
+predictor_extend_hash(struct predictor *pred, unsigned int pcr_index, const tpm_evdigest_t *d)
+{
+	pcr_bank_extend_register(&pred->prediction, pcr_index, d);
 }
 
 static const tpm_evdigest_t *
@@ -787,9 +815,14 @@ predictor_verify(struct predictor *pred, const char *source)
 		tpm_evdigest_t *md_predicted, *md_actual;
 
 		md_predicted = pcr_bank_get_register(&pred->prediction, pcr_index, NULL);
-		md_actual = pcr_bank_get_register(&actual, pcr_index, NULL);
 		if (md_predicted == NULL)
 			continue;
+
+		if (!pcr_bank_register_is_valid(&actual, pcr_index)) {
+			md_actual = NULL;
+		} else {
+			md_actual = pcr_bank_get_register(&actual, pcr_index, NULL);
+		}
 
 		if (md_actual == NULL) {
 			/* quietly skip any PCRs we never extended.
@@ -797,8 +830,9 @@ predictor_verify(struct predictor *pred, const char *source)
 			if (digest_is_zero(md_predicted))
 				continue;
 
-			error("Predicted value for PCR %s:%u, but there is no actual value to compare to\n",
-					pred->algo, pcr_index, source);
+			debug("PCR %u not present in %s\n", pcr_index, source);
+			printf("%s:%u %s MISSING\n", pred->algo, pcr_index, digest_print_value(md_predicted));
+			num_mismatches += 1;
 			continue;
 		}
 
