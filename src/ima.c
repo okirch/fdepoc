@@ -18,14 +18,25 @@
  * Written by Olaf Kirch <okir@suse.com>
  */
 
-#ifndef PCR_ORACLE_H
-#define PCR_ORACLE_H
+#include <stdio.h>
 
-#include "digest.h"
-#include "bufparser.h"
+#include "oracle.h"
 
-extern tpm_evdigest_t *	authenticode_get_digest(buffer_t *, digest_ctx_t *);
-extern bool		ima_is_active(void);
+/*
+ * For the time being, PCR prediction does do anything with IMA
+ * except making sure we're ignoring PCR 10 if IMA is active.
+ */
 
-#endif /* PCR_ORACLE_H */
+#define IMA_RUNTIME_MEASUREMENTS	"/sys/kernel/security/integrity/ima/ascii_runtime_measurements"
 
+bool
+ima_is_active(void)
+{
+	FILE *fp;
+
+	if (!(fp = fopen(IMA_RUNTIME_MEASUREMENTS, "r")))
+		return false;
+
+	fclose(fp);
+	return true;
+}

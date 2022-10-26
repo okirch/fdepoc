@@ -912,6 +912,7 @@ main(int argc, char **argv)
 	char *opt_stop_event = NULL;
 	bool opt_stop_before = true;
 	char *opt_verify = NULL;
+	char *pcr_mask_string;
 	int c, exit_code = 0;
 
 	while ((c = getopt_long(argc, argv, "dhA:CF:LSZ", options, NULL)) != EOF) {
@@ -965,7 +966,15 @@ main(int argc, char **argv)
 	if (optind + 1 > argc)
 		usage(1, "Expected PCR index as argument");
 
-	if (!parse_pcr_mask(argv[optind++], &pcr_mask))
+	pcr_mask_string = argv[optind++];
+	if (!strcmp(pcr_mask_string, "all")) {
+		pcr_mask = ~0U;
+		if (ima_is_active()) {
+			printf("Excluding PCR 10 from prediction (used by IMA)\n");
+			pcr_mask &= ~(1 << 10);
+		}
+	} else
+	if (!parse_pcr_mask(pcr_mask_string, &pcr_mask))
 		usage(1, "Bad value for PCR argument");
 
 	if (opt_stop_event && (!opt_from || strcmp(opt_from, "eventlog")))
