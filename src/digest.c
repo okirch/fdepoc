@@ -188,6 +188,18 @@ digest_is_zero(const tpm_evdigest_t *md)
 	return x == 0;
 }
 
+bool
+digest_is_invalid(const tpm_evdigest_t *md)
+{
+	unsigned int i;
+	unsigned char x = 0xFF;
+
+	for (i = 0; i < md->size; ++i)
+		x &= md->data[i];
+
+	return x == 0xFF;
+}
+
 struct digest_ctx {
 	EVP_MD_CTX *	mdctx;
 

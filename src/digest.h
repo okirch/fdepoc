@@ -48,6 +48,7 @@ extern const char *		digest_print_value(const tpm_evdigest_t *);
 extern const char *		digest_algo_name(const tpm_evdigest_t *);
 extern bool			digest_equal(const tpm_evdigest_t *a, const tpm_evdigest_t *b);
 extern bool			digest_is_zero(const tpm_evdigest_t *);
+extern bool			digest_is_invalid(const tpm_evdigest_t *);
 
 extern digest_ctx_t *		digest_ctx_new(const tpm_algo_info_t *);
 extern void			digest_ctx_update(digest_ctx_t *, const void *, unsigned int);
