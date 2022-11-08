@@ -1,4 +1,4 @@
-PKGNAME		= fde-tools-0.3
+PKGNAME		= fde-tools-0.4
 
 CCOPT		= -O0 -g
 FIRSTBOOTDIR	= /usr/share/jeos-firstboot
