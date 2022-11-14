@@ -1,0 +1,250 @@
+#!/bin/bash
+#
+#   Copyright (C) 2022 SUSE LLC
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#
+#   Written by Olaf Kirch <okir@suse.com>
+
+##################################################################
+# Note: some of the functiions below expect the caller to provide
+# functions for user interaction:
+#
+# request_password MESSAGE
+#	Prompt the user for a password, using the first argument
+#	as prompt message.
+#	On success, it sets the global variable result_password
+#	and returns 0.
+#	If the user cancelled the dialog, it returns 1.
+#
+# display_gauge MESSAGE
+#	Display a gauge meter like "dialog --gauge" does. This
+#	function receives integer values from 0 to 100 on standard
+#	input and should render a progress bar with the provided
+#	message above or below the bar.
+##################################################################
+
+##################################################################
+# Locate the encrypted root device
+##################################################################
+function luks_get_underlying_device {
+
+    local luks_name=$1
+
+    local luks_dev=""
+    for id in $(ls /sys/block); do
+	test -f "/sys/block/$id/dm/name" || continue
+	dm_name=$(cat "/sys/block/$id/dm/name")
+	test "$dm_name" = "$luks_name" || continue
+
+	slaves=$(ls /sys/block/$id/slaves)
+	case "$slaves" in
+	*" "*)
+	    echo "Ambiguous number of slave devices for LUKS dm device">&2
+	    return 1;;
+	esac
+	echo "/dev/$slaves"
+	return 0
+    done
+
+    echo "Unable to find underlying LUKS block device" >&2
+}
+
+function __partlabel_to_dev {
+
+    wanted="$1"
+    lsblk -nPo NAME,PARTLABEL|while read _line; do
+	eval declare -- $_line
+	if [ "${PARTLABEL}" = "${wanted}" -a -n "${NAME}" ]; then
+	    if ! [[ "${NAME}" =~ /dev/.* ]]; then
+		NAME="/dev/${NAME}"
+	    fi
+	    echo "${NAME}"
+	    break
+	fi
+    done
+}
+
+function partlabel_to_dev {
+
+    for iter in 1 2 3; do
+	dev=$(__partlabel_to_dev "$@")
+	test -z "${dev}" || break
+    done
+    echo "${dev}"
+}
+
+##################################################################
+# Write a passphrase to a file s.th. it can be used as
+# --key-file argument.
+# luksChangeKey requires two of these files, so we pass a string
+# as first argument (eg newpass, oldpass)
+##################################################################
+function luks_write_password {
+
+    filename=$(fde_make_tempfile "$1")
+    shift
+
+    echo -n "$*" >$filename
+    echo $filename
+}
+
+##################################################################
+# Drop an existing pass phrase from the LUKS header
+##################################################################
+function luks_drop_pass {
+
+    local luks_dev=$1
+    old_pass="$2"
+
+    fde_infobox "Dropping old recovery password"
+    old_keyfile=$(luks_write_password oldpass "${old_pass}")
+    if ! cryptsetup luksRemoveKey "${luks_dev}" ${old_keyfile}; then
+	fde_trace "Warning: luksRemoveKey indicates failure"
+	return 1
+    fi
+
+    rm -f ${old_keyfile}
+    return 0
+}
+
+##################################################################
+# Drop an existing key from the LUKS header
+##################################################################
+function luks_drop_key {
+
+    local luks_dev=$1
+    local luks_keyfile="$2"
+
+    fde_infobox "Dropping old LUKS key"
+    if ! cryptsetup luksRemoveKey "${luks_dev}" ${luks_keyfile}; then
+	fde_trace "Warning: luksRemoveKey indicates failure"
+	return 1
+    fi
+
+    return 0
+}
+
+##################################################################
+# Change an existing password
+# This function uses request_password to prompt the user for
+# the new password.
+##################################################################
+function luks_change_password {
+
+    local luks_dev=$1
+    local luks_old_password="$2"
+
+    request_password "Please enter new LUKS recovery password."
+    if [ -z "$result_password" ]; then
+        fde_trace "Unable to obtain new recovery password"
+	return 1
+    fi
+
+    fde_infobox "Updating LUKS recovery password"
+
+    old_keyfile=$(luks_write_password oldpass "${luks_old_password}")
+    new_keyfile=$(luks_write_password newpass "${result_password}")
+    if ! cryptsetup --key-file "${old_keyfile}" luksChangeKey --pbkdf "$FDE_LUKS_PBKDF" "${luks_dev}" ${new_keyfile}; then
+	# FIXME: dialog
+	fde_trace "Warning: luksAddKey indicates failure"
+	return 1
+    fi
+
+    rm -f ${new_keyfile} ${old_keyfile}
+}
+
+function luks_add_password {
+
+    local luks_dev=$1
+    local luks_keyfile="$2"
+
+    request_password "Please enter new LUKS recovery password."
+    if [ -z "$result_password" ]; then
+        echo "Unable to obtain new recovery password" >&2
+	return 1
+    fi
+
+    fde_infobox "Updating LUKS recovery password"
+
+    new_keyfile=$(luks_write_password newpass "${result_password}")
+    if ! cryptsetup --key-file "${luks_keyfile}" luksAddKey --pbkdf "$FDE_LUKS_PBKDF" "${luks_dev}" ${new_keyfile}; then
+	fde_trace "Warning: luksAddKey indicates failure"
+	return 1
+    fi
+
+    rm -f ${new_keyfile}
+}
+
+function luks_add_random_key {
+
+    local luks_dev="$1"
+    local luks_keyfile="$2"
+    local new_keyfile="$3"
+
+    dd if=/dev/random bs=1 count=$FDE_KEY_SIZE_BYTES of=$new_keyfile
+    cryptsetup --key-file "${luks_keyfile}" luksAddKey --pbkdf "$FDE_LUKS_PBKDF" $luks_dev $new_keyfile
+}
+
+function luks_set_random_key {
+
+    local luks_dev="$1"
+    local luks_keyfile="$2"
+
+    new_keyfile=/dev/shm/new.keyfile
+    dd if=/dev/random bs=1 count=$FDE_KEY_SIZE_BYTES of=$new_keyfile
+
+    # Note: we try to reduce the cost of PBKDF to (almost) nothing.
+    # There's no need in slowing down this operation for a
+    # key that was random to begin with.
+    cryptsetup --key-file "${luks_keyfile}" luksChangeKey \
+		--pbkdf "$FDE_LUKS_PBKDF" --pbkdf-force-iterations 1000 \
+		$luks_dev $new_keyfile
+
+    cp $new_keyfile "${luks_keyfile}"
+    rm -f $new_keyfile
+
+}
+
+function luks_reencrypt {
+
+    local luks_dev="$1"
+    local luks_keyfile="$2"
+
+    # Online reencryption works with LUKS2 only. If we ever want to do FDE with luks1,
+    # we need to perform reencryption during installation, after dd'ing the image to
+    # disk and prior to mounting it.
+    {
+	cryptsetup reencrypt --key-file "$luks_keyfile" --progress-frequency 1 $luks_dev 2>&1|
+	    sed -u 's/.* \([0-9]*\)[0-9.]*%.*/\1/'
+	    echo 100
+    } | display_gauge "Re-encrypting root file system on $luks_dev"
+}
+
+function luks_decrypt {
+
+    luks_dev="$1"
+    luks_keyfile="$2"
+
+    # Online reencryption works with LUKS2 only. If we ever want to do FDE with luks1,
+    # we need to perform reencryption during installation, after dd'ing the image to
+    # disk and prior to mounting it.
+    {
+	cryptsetup reencrypt --decrypt --key-file "$luks_keyfile" --progress-frequency 1 $luks_dev 2>&1|
+	    sed -u 's/.* \([0-9]*\)[0-9.]*%.*/\1/'
+	    echo 100
+    } | display_gauge "Decrypting LUKS device $luks_dev"
+}
+

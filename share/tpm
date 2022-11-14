@@ -1,0 +1,219 @@
+#!/bin/bash
+#
+#   Copyright (C) 2022 SUSE LLC
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#
+#   Written by Olaf Kirch <okir@suse.com>
+
+
+##################################################################
+# Predict the set of PCR values that the TPM chip will hold at
+# the time we need to unseal the key.
+#
+# This function writes the binary PCR values to stdout. This is
+# the same format that tpm2_pcrread produces, and which tpm2_load
+# expects as parameter to the --pcr option.
+#
+# If tracing is on, print the computed values to stderr as well
+# (in human readable format) so that they wind up in the log file.
+#
+# NOTE: This needs to change in order to accomodate things like
+# systemd-boot.
+##################################################################
+function tpm_build_pcrset {
+
+    grub_cfg="$1"
+
+    echo "Building PCR set for $FDE_SEAL_PCR_LIST" >&2
+    for index in ${FDE_SEAL_PCR_LIST//,/ }; do
+	case $index in
+	9)
+	    # we need to predict the value of PCR 9 exactly after reading
+	    # grub.cfg from the EFI partition of the installed system.
+	    # Note: grub must not hash the sealed key file to PCR9 when
+	    # loading it else we're in trouble :-)
+	    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" --format binary \
+			--from-zero 9 \
+			file "${grub_cfg}"
+
+	    if $FDE_TRACING; then
+		    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
+			--from-zero 9 \
+			file "${grub_cfg}" >&2
+	    fi;;
+	*)
+	    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" --format binary \
+			--from-snapshot $index
+
+	    if $FDE_TRACING; then
+		    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
+			--from-snapshot $index >&2
+	    fi;;
+	esac
+    done
+}
+
+function tpm_policy_options {
+
+    pcr_values_file=$1
+
+    pcr_list="$FDE_SEAL_PCR_BANK:$FDE_SEAL_PCR_LIST"
+    if [ -n "$pcr_values_file" -a -s "$pcr_values_file" ]; then
+	echo "--pcr-list $pcr_list --pcr $pcr_values_file"
+    else
+	echo "--pcr-list $pcr_list"
+    fi
+}
+
+function tpm_seal_key {
+
+    pcr_values_file=$1
+    secret=$2
+    pubkey=$3
+    privkey=$4
+
+    context=$(fde_make_tempfile primary.ctx)
+    session=$(fde_make_tempfile session.ctx)
+    policy=$(fde_make_tempfile policy.tpm)
+
+    policy_options=$(tpm_policy_options "$pcr_values_file")
+
+    tpm2_createprimary --quiet -c $context -a "$FDE_TPM2_SRK_ATTRS"
+    tpm2_startauthsession --session $session
+    tpm2_policypcr --session $session $policy_options --policy $policy
+    tpm2_create --quiet -C $context -u $pubkey -r $privkey -L $policy -i $secret
+    retval=$?
+    tpm2_flushcontext $session
+
+    return $retval
+}
+
+function tpm_unseal_key {
+
+    pcr_values_file=$1
+    pubkey=$2
+    privkey=$3
+    unsealed_key_file=$4
+
+    fde_make_tempdir
+    dir="$FDE_TEMP_DIR"
+
+    context=$dir/primary.ctx
+    session=$dir/session.ctx
+    policy=$dir/policy.tpm
+    key_context=$dir/key.ctx
+
+    policy_options=$(tpm_policy_options "$pcr_values_file")
+
+    tpm2_createprimary --quiet -c $context -a "$FDE_TPM2_SRK_ATTRS"
+    tpm2_startauthsession --policy-session -S $session
+    tpm2_policypcr --session $session $policy_options --policy $policy
+    tpm2_load -C $context -u $pubkey -r $privkey -c $key_context
+    tpm2_unseal -c $context -p session:$session -c $key_context -o $unsealed_key_file
+    tpm2_flushcontext $session
+
+    fde_clean_tempdir
+}
+
+
+function tpm_seal_key_verify {
+
+    opt_verify=false
+    if [ "$1" == "--verify" ]; then
+	opt_verify=true
+	shift
+    fi
+
+    pcr_values_file=$1
+    secret=$2
+    sealed_key_file=$3
+
+    pubkey=$(fde_make_tempfile sealed-key.pub)
+    privkey=$(fde_make_tempfile sealed-key.priv)
+
+    if ! tpm_seal_key "$pcr_values_file" $secret $pubkey $privkey; then
+	return 1
+    fi
+
+    # The sealed key that grub expects is just the concatenation of
+    # TPM2B_PUBLIC and a TPM2B containing the private key portion
+    cat $pubkey $privkey > $sealed_key_file
+
+    if $opt_verify; then
+	unsealed_file=$(fde_make_tempfile unsealed.key)
+	tpm_unseal_key "$pcr_values_file" $pubkey $privkey $unsealed_file
+
+	if ! cmp --quiet $secret $unsealed_file; then
+	    echo "Problem: TPM seal/unseal did not work!" >&2
+	    retval=1
+	else
+	    echo "Splendid, we were able to unseal the TPM protected key" >&2
+	    retval=0
+	fi
+	rm -f "$unsealed_file"
+    fi
+
+    rm -f $pubkey $privkey
+    return $retval
+}
+
+
+function tpm_test {
+
+    key_size=$1
+
+    pcr_values_file=$(fde_make_tempfile pcr-values)
+    tpm2_pcrread -o $pcr_values_file $FDE_SEAL_PCR_BANK:$FDE_SEAL_PCR_LIST >&2
+
+    secret=$(fde_make_tempfile secret)
+    dd if=/dev/zero of=$secret bs=$key_size count=1 >&2
+
+    sealed_secret=$(fde_make_tempfile sealed.key)
+    tpm_seal_key_verify --verify $pcr_values_file $secret $sealed_secret >&2
+    retval=$?
+
+    fde_clean_tempdir
+    return $retval
+}
+
+function tpm_seal_secret {
+
+    secret="$1"
+    efi_grub_dir="$2"
+    sealed_secret=$3
+
+    # Construct a set of PCR values against which to seal the key.
+    # Most of these come straight from the PCR snapshot taken by tpm_record_pcrs
+    # in grub.cfg. The only exception is PCR9, which covers the files that grub
+    # reads during early boot (ie grub.cfg). And that grub.cfg file is
+    # going to be different from the one that got used when booting the installer.
+    pcr_values_file=$(fde_make_tempfile pcr-set)
+    tpm_build_pcrset "${efi_grub_dir}/grub.cfg" >"${pcr_values_file}"
+
+    # Since we're now sealing the key against a predicted value of PCR9 (rather
+    # than the actual value), we can no longer verify that the key can be
+    # unsealed.
+    if ! tpm_seal_key_verify $pcr_values_file $secret $sealed_secret >&2; then
+	rm -f $sealed_secret
+	# FIXME: this should be an error dialog.
+	# Let's hope the user has set a recovery password
+	echo "Failed to seal LUKS encryption key" >&2
+	return 1
+    fi
+
+    rm -f "${pcr_values_file}"
+}
+

@@ -1,0 +1,20 @@
+# Tunables for full disk encryption
+
+# List of PCRs to seal the LUKS key to
+FDE_SEAL_PCR_LIST=0,2,4,7,9
+FDE_SEAL_PCR_BANK=sha256
+
+# It appears that 128 is the maximum size of what TPM2_Load is willing to handle
+FDE_KEY_SIZE_BYTES=128
+
+# These need to match exactly what grub2 uses to create the SRK
+FDE_TPM2_SRK_ATTRS="userwithauth|restricted|decrypt|fixedtpm|fixedparent|noda|sensitivedataorigin"
+
+# The PBKDF algorithm to use for deriving LUKS keys from a given password
+# For grub2 based schemes, you have to use pbkdf2 for now.
+FDE_LUKS_PBKDF="pbkdf2"
+
+# Enable/disable tracing output
+FDE_TRACING=true
+
+

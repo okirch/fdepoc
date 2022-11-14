@@ -1,10 +1,15 @@
 PKGNAME		= fde-tools-0.4
 
 CCOPT		= -O0 -g
+SYSCONFIGDIR	= /etc/sysconfig
+FDE_SHARE_DIR	= /usr/share/fde
 FIRSTBOOTDIR	= /usr/share/jeos-firstboot
 CFLAGS		= -Wall $(CCOPT)
 FIDO_LINK	= -lfido2 -lcrypto
 TOOLS		= fde-token
+
+LIBSCRIPTS	= util
+_LIBSCRIPTS	= $(addprefix share/,$(LIBSCRIPTS))
 
 all: $(TOOLS)
 
@@ -15,6 +20,10 @@ install:: $(TOOLS)
 install::
 	@mkdir -p $(DESTDIR)$(FIRSTBOOTDIR)/modules
 	@cp -v firstboot/fde $(DESTDIR)$(FIRSTBOOTDIR)/modules/fde
+	@mkdir -p $(DESTDIR)$(SYSCONFIGDIR)
+	@cp -v sysconfig.fde $(DESTDIR)$(SYSCONFIGDIR)/fde
+	@mkdir -p $(DESTDIR)$(FDE_SHARE_DIR)
+	@cp -v $(_LIBSCRIPTS) $(DESTDIR)$(FDE_SHARE_DIR)
 
 clean:
 	rm -f $(TOOLS)

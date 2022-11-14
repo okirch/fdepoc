@@ -1,0 +1,67 @@
+#
+#   Copyright (C) 2022 SUSE LLC
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#
+#   Written by Olaf Kirch <okir@suse.com>
+
+
+##################################################################
+# Helper functions for temp file/dir creation
+##################################################################
+function fde_make_tempdir {
+
+    declare -g FDE_TEMP_DIR
+
+    if [ -z "$FDE_TEMP_DIR" ]; then
+	FDE_TEMP_DIR=$(mktemp -d -p /dev/shm fde.XXXXXX)
+    fi
+}
+
+function fde_clean_tempdir {
+
+    declare -g FDE_TEMP_DIR
+
+    if [ -n "$FDE_TEMP_DIR" ]; then
+	rm -rf $FDE_TEMP_DIR
+	unset FDE_TEMP_DIR
+    fi
+}
+
+function fde_make_tempfile {
+
+    fde_make_tempdir
+    echo "$FDE_TEMP_DIR/$1"
+}
+
+##################################################################
+# Display an error box
+##################################################################
+function fde_error {
+
+    d --title ERROR --msgbox "$*" 8 60
+}
+
+function fde_infobox {
+
+    d --infobox "$*" 5 40
+
+}
+
+function fde_trace {
+
+    echo "$*" >&2
+}
+
