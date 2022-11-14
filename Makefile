@@ -8,7 +8,11 @@ CFLAGS		= -Wall $(CCOPT)
 FIDO_LINK	= -lfido2 -lcrypto
 TOOLS		= fde-token
 
-LIBSCRIPTS	= util
+LIBSCRIPTS	= firstboot \
+		  grub2 \
+		  luks \
+		  tpm \
+		  util
 _LIBSCRIPTS	= $(addprefix share/,$(LIBSCRIPTS))
 
 all: $(TOOLS)
