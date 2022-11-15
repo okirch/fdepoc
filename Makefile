@@ -1,4 +1,4 @@
-PKGNAME		= fde-tools-0.4
+PKGNAME		= fde-tools-0.5
 
 CCOPT		= -O0 -g
 SYSCONFIGDIR	= /etc/sysconfig
@@ -42,6 +42,6 @@ build/%.o: src/%.c
 
 dist:
 	mkdir -p $(PKGNAME)
-	cp -a Makefile src firstboot $(PKGNAME)
+	cp -a Makefile sysconfig.fde src share firstboot $(PKGNAME)
 	tar cvjf $(PKGNAME).tar.bz2 $(PKGNAME)/*
 	rm -rf $(PKGNAME)
