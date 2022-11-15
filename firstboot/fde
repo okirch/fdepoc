@@ -34,11 +34,6 @@
 KIWI_ROOT_KEYFILE=/root/.root.keyfile
 KIWI_ROOT_PASSPHRASE="1234"
 
-function __get_root_dev {
-
-    df / | grep /dev/ | cut -f1 -d' '
-}
-
 function fde_protect_tpm {
 
     local luks_dev=$1
@@ -302,7 +297,7 @@ function fde_systemd_firstboot {
 
     # FIXME: rather than hard-coding the recovery password here,
     # have kiwi write it to /.root.something and read it from there
-    fde_firstboot $(__get_root_dev) "$KIWI_ROOT_KEYFILE" "$KIWI_ROOT_PASSPHRASE" 2>/var/log/fde-firstboot.log
+    fde_firstboot $(luks_device_for_path "/") "$KIWI_ROOT_KEYFILE" "$KIWI_ROOT_PASSPHRASE" 2>/var/log/fde-firstboot.log
 
     set +x
 

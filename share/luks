@@ -36,7 +36,17 @@
 ##################################################################
 
 ##################################################################
-# Locate the encrypted root device
+# Locate the device corresponding to a mount point
+##################################################################
+function luks_device_for_path {
+
+    path="$1"
+
+    df "$path" | grep /dev/ | cut -f1 -d' '
+}
+
+##################################################################
+# Locate the underlying partition of LUKS encrypted device
 ##################################################################
 function luks_get_underlying_device {
 
