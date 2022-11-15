@@ -49,12 +49,12 @@ function fde_make_tempfile {
 ##################################################################
 # Display an error box
 ##################################################################
-function fde_error {
+function display_errorbox {
 
     d --title ERROR --msgbox "$*" 8 60
 }
 
-function fde_infobox {
+function display_infobox {
 
     d --infobox "$*" 5 40
 

@@ -72,25 +72,25 @@ function fde_setup_encrypted {
     done
 
     if ! [[ "$root_dev" =~ /dev/mapper/.* ]]; then
-	fde_error "root device $root_dev does not look like a dm device"
+	display_errorbox "root device $root_dev does not look like a dm device"
         return 1
     fi
 
     luks_name=$(expr "$root_dev" : ".*/\(.*\)")
     luks_dev=$(luks_get_underlying_device "$luks_name")
     if [ -z "$luks_dev" ]; then
-        fde_error "Unable to determine underlying LUKS device for $root_dev"
+        display_errorbox "Unable to determine underlying LUKS device for $root_dev"
 	return 1
     fi
 
     if $with_tpm && ! tpm_test $FDE_KEY_SIZE_BYTES; then
-	fde_error "TPM key sealing and unsealing does not seem to work"
+	display_errorbox "TPM key sealing and unsealing does not seem to work"
 	return 1
     fi
 
     # Change the built-in recovery password to the one provided by the user
     if $with_pass && ! luks_change_password "${luks_dev}" "${luks_recovery_pass}"; then
-	fde_error "Failed to change recovery password."
+	display_errorbox "Failed to change recovery password."
 	with_pass=false
     fi
 
@@ -103,7 +103,7 @@ function fde_setup_encrypted {
     if $with_pass; then
         # Drop the random key slot and use the password for reencryption
         if ! luks_drop_key "${luks_dev}" "${luks_keyfile}"; then
-            fde_error "Failed to remove initial random key"
+            display_errorbox "Failed to remove initial random key"
             return 1
         fi
 
@@ -119,7 +119,7 @@ function fde_setup_encrypted {
     else
         # Drop the password key slot and use the random key for reencryption
         if ! luks_drop_pass "${luks_dev}" "${luks_recovery_pass}"; then
-            fde_error "Failed to remove initial password"
+            display_errorbox "Failed to remove initial password"
             return 1
         fi
 
@@ -128,7 +128,7 @@ function fde_setup_encrypted {
     fi
 
     if $with_tpm && ! fde_protect_tpm "${luks_dev}" "${luks_keyfile}"; then
-	fde_error "Failed to protect encrypted volume with TPM"
+	display_errorbox "Failed to protect encrypted volume with TPM"
 	with_tpm=false
     fi
 
@@ -152,14 +152,14 @@ function fde_setup_unencrypted {
     luks_recovery_pass="$3"
 
     if ! [[ "$root_dev" =~ /dev/mapper/.* ]]; then
-	fde_error "root device $root_dev does not look like a dm device"
+	display_errorbox "root device $root_dev does not look like a dm device"
         return 1
     fi
 
     luks_name=$(expr "$root_dev" : ".*/\(.*\)")
     luks_dev=$(luks_get_underlying_device "$luks_name")
     if [ -z "$luks_dev" ]; then
-        fde_error "Unable to determine underlying LUKS device for $root_dev"
+        display_errorbox "Unable to determine underlying LUKS device for $root_dev"
 	return 1
     fi
 
@@ -168,9 +168,9 @@ function fde_setup_unencrypted {
     rm -f "${luks_keyfile}"
     rm -f /etc/crypttab
 
-    fde_infobox "Re-creating initial ramdisk"
+    display_infobox "Re-creating initial ramdisk"
     if ! mkinitrd >&2; then
-    	fde_error "Failed to rebuild initrd"
+	display_errorbox "Failed to rebuild initrd"
 	return 1
     fi
 
@@ -218,7 +218,7 @@ function __fde_valid_protections {
         case $tag in
         pass|tpm) : ;;
         *)
-	    fde_error "FDE key protection scheme $tag not yet implemented"
+	    display_errorbox "FDE key protection scheme $tag not yet implemented"
 	    return 1;;
         esac
     done
@@ -280,7 +280,7 @@ function fde_firstboot {
 	    return 0
 	fi
 
-	fde_error "Failed to set up for full disk encryption. Trying to recover"
+	display_errorbox "Failed to set up for full disk encryption. Trying to recover"
     fi
 
     fde_setup_unencrypted "$@"
@@ -288,12 +288,12 @@ function fde_firstboot {
 
 function fde_systemd_firstboot {
 
-    fde_infobox "Full Disk Encryption with TPM2 support"
+    display_infobox "Full Disk Encryption with TPM2 support"
 
     set -x
 
     if [ ! -f "$KIWI_ROOT_KEYFILE" ]; then
-    	fde_error "Missing $KIWI_ROOT_KEYFILE. FDE setup will most likely fail."
+	display_errorbox "Missing $KIWI_ROOT_KEYFILE. FDE setup will most likely fail."
     fi
 
     # FIXME: rather than hard-coding the recovery password here,

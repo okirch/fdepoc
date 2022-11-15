@@ -47,7 +47,7 @@ function request_password {
     while [ $attempt -lt 3 ]; do
 	let attempt+=1
 
-	fde_infobox "About to request password (#$attempt)"
+	display_infobox "About to request password (#$attempt)"
 	if ! d $nocancel --insecure --passwordbox "${prompt}" 8 50; then
 	    # cancelling the dialog means "I don't want to set this password"
 	    echo "${defpass}"
