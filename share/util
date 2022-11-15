@@ -47,19 +47,8 @@ function fde_make_tempfile {
 }
 
 ##################################################################
-# Display an error box
+# Print a tracing message to stderr
 ##################################################################
-function display_errorbox {
-
-    d --title ERROR --msgbox "$*" 8 60
-}
-
-function display_infobox {
-
-    d --infobox "$*" 5 40
-
-}
-
 function fde_trace {
 
     echo "$*" >&2
