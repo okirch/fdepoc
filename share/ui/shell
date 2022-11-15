@@ -1,0 +1,93 @@
+#
+#   Copyright (C) 2022 SUSE LLC
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#
+#   Written by Olaf Kirch <okir@suse.com>
+
+##################################################################
+# Display an error box
+##################################################################
+function display_errorbox {
+
+    echo "Error: $*" >&2
+}
+
+function display_infobox {
+
+    echo "$*"
+}
+
+##################################################################
+# request_password MESSAGE
+#	Prompt the user for a password, using the first argument
+#	as prompt message.
+#	On success, it sets the global variable result_password
+#	and returns 0.
+#	If the user cancelled the dialog, it returns 1.
+##################################################################
+function request_password {
+
+    declare -g result_password
+
+    prompt="$1"
+    defpass=$2
+
+    result_password=""
+
+    if [ -n "$defpass" ]; then
+	prompt+=" Press return to retain default ($defpass)"
+    fi
+
+    attempt=0
+
+    while [ $attempt -lt 3 ]; do
+	let attempt+=1
+
+	echo -n "$prompt: "
+	read -s password1
+
+	echo -n "Please retype password: "
+	read -s password2
+
+	if [ "${password1}" = "${password2}" ];  then
+	    result_password="${password1}"
+	    return 0
+	fi
+
+        echo "Passwords did not match, please try again"
+    done
+    return 1
+}
+
+##################################################################
+# display_gauge MESSAGE
+#	Display a gauge meter like "dialog --gauge" does. This
+#	function receives integer values from 0 to 100 on standard
+#	input and should render a progress bar with the provided
+#	message above or below the bar.
+##################################################################
+function display_gauge {
+
+    message="$*"
+
+    echo -n "$message"
+    while read value; do
+    	echo -e '\r'"$message [$value %]"
+    done
+    echo
+}
+
+
