@@ -18,6 +18,14 @@
 #   Written by Olaf Kirch <okir@suse.com>
 
 ##################################################################
+# Edit a variable in /etc/default/grub
+##################################################################
+function grub_set_control {
+
+    sysconfig_set_variable /etc/default/grub "$@"
+}
+
+##################################################################
 # Change the cryptomount command in early boot grub.cfg
 # This turns something like this:
 #	cryptomount -u XX-YY-ZZ -p defpass
@@ -65,7 +73,7 @@ EOF
 # Update the grub.cfg residing on the EFI partition to properly
 # unseal the TPM protected LUKS partition
 ##################################################################
-function grub_update_early_config {
+function grub_update_early_config_old {
 
     grub_dir="$1"
     sealed_key_file="$2"
@@ -84,3 +92,20 @@ function grub_update_early_config {
     mv $grub_cfg_file.new $grub_cfg_file
 }
 
+function grub_update_early_config {
+
+    grub_dir="$1"
+    sealed_key_file="$2"
+    sealed_pcr_bank="$3"
+    sealed_pcr_list="$4"
+
+    grub_set_control GRUB_ENABLE_CRYPTODISK "y"
+    grub_set_control GRUB_TPM2_SEALED_KEY "$sealed_key_file"
+    grub_set_control GRUB_TPM2_PCR_BANK "$sealed_pcr_bank"
+    grub_set_control GRUB_TPM2_PCR_LIST "$sealed_pcr_list"
+    grub_set_control GRUB_CRYPTODISK_PASSWORD ""
+
+    grub_cfg_file="${grub_dir}/grub.cfg"
+    grub2-mkconfig --output "${grub_cfg_file}.new"
+    mv $grub_cfg_file.new $grub_cfg_file
+}

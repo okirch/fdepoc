@@ -65,3 +65,20 @@ function fde_trace {
     echo "$*" >&2
 }
 
+##################################################################
+# Change a shell variable in files like /etc/sysconfig/* and
+# /etc/default/grub
+##################################################################
+function sysconfig_set_variable {
+
+    cfg_file="$1"
+    var_name="$2"
+    value="$3"
+
+    if ! grep -qs "^[# ]*${var_name}=" $cfg_file; then
+	echo "${var_name}=\"${value}\"" >> $cfg_file
+    else
+	sed -i "s|^[# ]*${var_name}=.*|${var_name}=\"$value\"|" $cfg_file
+    fi
+}
+
