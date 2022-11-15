@@ -26,7 +26,7 @@
 . /usr/share/fde/grub2
 
 # dialog functions that use the firstboot plumbing
-. /usr/share/fde/firstboot
+. /usr/share/fde/ui/dialog
 
 ##################################################################
 # Values and locations used by KIWI
