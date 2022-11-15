@@ -88,27 +88,16 @@ function request_password {
     declare -g result_password
 
     prompt="$1"
-    defpass=$2
 
     result_password=""
 
-    if [ -n "$defpass" ]; then
-	prompt+=" Press Cancel to retain default ($defpass)"
-	nocancel=
-    else
-	nocancel="--no-cancel"
-    fi
-
     attempt=0
-
     while [ $attempt -lt 3 ]; do
 	let attempt+=1
 
 	display_infobox "About to request password (#$attempt)"
-	if ! d $nocancel --insecure --passwordbox "${prompt}" 8 50; then
-	    # cancelling the dialog means "I don't want to set this password"
-	    echo "${defpass}"
-	    return 0
+	if ! d --no-cancel --insecure --passwordbox "${prompt}" 8 50; then
+	    continue
 	fi
 
 	password1="$result"
