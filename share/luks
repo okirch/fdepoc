@@ -46,6 +46,30 @@ function luks_device_for_path {
 }
 
 ##################################################################
+# Get the dm name for the given partition
+##################################################################
+function luks_dm_name_for_device {
+
+    dev="$1"
+
+    devnum=$(stat -c "%t:%T" "$dev" 2>/dev/null)
+    test -n "$devnum" || return 1
+
+    for name in $(ls /dev/mapper); do
+	dmdev="/dev/mapper/$name"
+	test -b "$dmdev" || continue
+
+	dmdevnum=$(stat -c "%t:%T" "$dmdev" 2>/dev/null)
+	if [ "$devnum" = "$dmdevnum" ]; then
+	    echo "$name"
+	    return 0
+	fi
+    done
+
+    return 1
+}
+
+##################################################################
 # Locate the underlying partition of LUKS encrypted device
 ##################################################################
 function luks_get_underlying_device {
@@ -68,7 +92,7 @@ function luks_get_underlying_device {
 	return 0
     done
 
-    echo "Unable to find underlying LUKS block device" >&2
+    echo "Unable to find underlying LUKS block device for $luks_name" >&2
 }
 
 function __partlabel_to_dev {
@@ -155,6 +179,15 @@ function luks_change_password {
 
     local luks_dev=$1
     local luks_old_password="$2"
+
+    if [ -z "$luks_old_password" ]; then
+	request_password "Please enter old LUKS recovery password."
+        if [ -z "$result_password" ]; then
+            fde_trace "Unable to obtain old recovery password"
+	    return 1
+        fi
+	luks_old_password="$result_password"
+    fi
 
     request_password "Please enter new LUKS recovery password."
     if [ -z "$result_password" ]; then

@@ -92,6 +92,6 @@ if [ "$opt_bootloader" != "grub2" -a "$opt_bootloader" != "systemd-boot" ]; then
 fi
 
 . /etc/sysconfig/fde
-. "$SHAREDIR/ui/$opt_ui
-. "$SHAREDIR/$opt_bootloader
+. "$SHAREDIR/ui/$opt_ui"
+. "$SHAREDIR/$opt_bootloader"
 . "$SHAREDIR/commands/$command"
