@@ -53,8 +53,15 @@ fi
 
 eval set $(getopt -n fde -l "$long_options" -o h -- "$@")
 
+command=
 while [ $# -gt 0 ]; do
-    next="$1"; shift
+    next="$1"
+    if [[ $next != -* ]]; then
+	command=$next
+	break
+    fi
+    shift
+
     case $next in
     -h|--help)
     	fde_usage
@@ -65,12 +72,14 @@ while [ $# -gt 0 ]; do
     	opt_device=$1; shift;;
     --use-dialog)
     	opt_ui=dialog;;
-    -*)
+    *)
     	fde_bad_option "Unsupported option $next";;
-    *)	command=$next
-    	break;;
     esac
 done
+
+if [ -z "$command" ]; then
+    fde_bad_option "Missing subcommand"
+fi
 
 if [ ! -e "$SHAREDIR/commands/$command" ]; then
     fde_bad_option "Unsupported command \"$command\""
