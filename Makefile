@@ -1,6 +1,7 @@
 PKGNAME		= fde-tools-0.5
 
 CCOPT		= -O0 -g
+SBINDIR		= /sbin
 SYSCONFIGDIR	= /etc/sysconfig
 FDE_SHARE_DIR	= /usr/share/fde
 FIRSTBOOTDIR	= /usr/share/jeos-firstboot
@@ -8,11 +9,15 @@ CFLAGS		= -Wall $(CCOPT)
 FIDO_LINK	= -lfido2 -lcrypto
 TOOLS		= fde-token
 
-LIBSCRIPTS	= firstboot \
-		  grub2 \
+LIBSCRIPTS	= grub2 \
 		  luks \
 		  tpm \
-		  util
+		  uefi \
+		  util \
+		  ui/dialog \
+		  ui/shell \
+		  commands/passwd
+
 _LIBSCRIPTS	= $(addprefix share/,$(LIBSCRIPTS))
 
 all: $(TOOLS)
@@ -27,7 +32,13 @@ install::
 	@mkdir -p $(DESTDIR)$(SYSCONFIGDIR)
 	@cp -v sysconfig.fde $(DESTDIR)$(SYSCONFIGDIR)/fde
 	@mkdir -p $(DESTDIR)$(FDE_SHARE_DIR)
-	@cp -v $(_LIBSCRIPTS) $(DESTDIR)$(FDE_SHARE_DIR)
+	@for name in $(LIBSCRIPTS); do \
+		d=$$(dirname $$name); \
+		mkdir -p $(DESTDIR)$(FDE_SHARE_DIR)/$$d; \
+		cp -v share/$$name $(DESTDIR)$(FDE_SHARE_DIR)/$$d; \
+	done
+	@mkdir -p $(DESTDIR)$(SBINDIR)
+	@install -m 555 -v fde.sh $(DESTDIR)$(SBINDIR)/fde
 
 clean:
 	rm -f $(TOOLS)
@@ -42,6 +53,6 @@ build/%.o: src/%.c
 
 dist:
 	mkdir -p $(PKGNAME)
-	cp -a Makefile sysconfig.fde src share firstboot $(PKGNAME)
+	cp -a Makefile sysconfig.fde fde.sh src share firstboot $(PKGNAME)
 	tar cvjf $(PKGNAME).tar.bz2 $(PKGNAME)/*
 	rm -rf $(PKGNAME)
