@@ -181,20 +181,26 @@ function fde_setup_unencrypted {
 function get_efivar_binary_byte {
 
     name="$1"
-    path="/sys/firmware/efi/vars/$name/data"
+    path="/sys/firmware/efi/efivars/$name"
     if [ ! -f "$path" ]; then
 	echo "n/a"
     else
-	cat "$path" | tr '\0\1' '01'
+	# read the EFI variable, skipping over the initial attribute word (32bit)
+	dd if="$path" bs=1 skip=4 | tr '\0\1' '01'
     fi
 }
 
-function fde_platform_is_tpm_capable {
+function tpm_present_and_working {
 
     if ! tpm2_selftest -V -f; then
 	fde_trace "This system does not have a TPM2 chip. Full disk encryption not available"
 	return 1
     fi
+
+    return 0
+}
+
+function secure_boot_enabled {
 
     if ! [ -d /sys/firmware/efi ]; then
 	fde_trace "This system does not seem to use UEFI. Full disk encryption not available"
@@ -205,7 +211,6 @@ function fde_platform_is_tpm_capable {
     setup_mode=$(get_efivar_binary_byte SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c)
     if [ "$secure_boot" != 1 -a "$setup_mode" != 0 ]; then
 	fde_trace "Secure Boot not enabled (secure_boot=$secure_boot; setup_mode=$setup_mode)"
-	fde_trace "This system does not seem to use Secure Boot. Full disk encryption not available"
 	return 1
     fi
 
@@ -242,7 +247,9 @@ function fde_choose_protection {
     message="ALP can be installed with an encrypted root and boot partition. Please choose the desired protection method(s) or press Cancel to install without encryption"
     options+=(pass 'Pass phrase' on)
 
-    if fde_platform_is_tpm_capable; then
+    if ! tpm_present_and_working; then
+	display_infobox "This system does not seem to have a working TPM device."
+    else
     	options+=(tpm 'Stored inside the TPM chip' on)
     fi
 
@@ -287,6 +294,11 @@ function fde_firstboot {
 }
 
 function fde_systemd_firstboot {
+
+    if ! secure_boot_enabled; then
+	display_infobox "This system does not seem to use Secure Boot. Full disk encryption not available"
+	return 1
+    fi
 
     display_infobox "Full Disk Encryption with TPM2 support"
 
