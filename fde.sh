@@ -1,6 +1,6 @@
 #!/bin/bash
 
-: ${SHAREDIR:-/usr/share/fde}
+: ${SHAREDIR:=/usr/share/fde}
 
 . $SHAREDIR/luks
 
