@@ -189,7 +189,7 @@ function luks_change_password {
     local luks_old_password="$2"
 
     if [ -z "$luks_old_password" ]; then
-	request_password "Please enter old LUKS recovery password."
+	request_password "Please enter old LUKS recovery password"
         if [ -z "$result_password" ]; then
             fde_trace "Unable to obtain old recovery password"
 	    return 1
@@ -197,7 +197,7 @@ function luks_change_password {
 	luks_old_password="$result_password"
     fi
 
-    request_new_password "Please enter new LUKS recovery password."
+    request_new_password "Please enter new LUKS recovery password"
     if [ -z "$result_password" ]; then
         fde_trace "Unable to obtain new recovery password"
 	return 1
@@ -221,7 +221,7 @@ function luks_add_password {
     local luks_dev=$1
     local luks_keyfile="$2"
 
-    request_new_password "Please enter new LUKS recovery password."
+    request_new_password "Please enter new LUKS recovery password"
     if [ -z "$result_password" ]; then
         echo "Unable to obtain new recovery password" >&2
 	return 1

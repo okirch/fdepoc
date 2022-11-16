@@ -118,7 +118,6 @@ function request_new_password {
     while [ $attempt -lt 3 ]; do
 	let attempt+=1
 
-	display_infobox "About to request password (#$attempt)"
 	if ! d --no-cancel --insecure --passwordbox "${prompt}" 8 50; then
 	    continue
 	fi
