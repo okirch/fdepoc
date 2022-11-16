@@ -17,6 +17,19 @@
 #
 #   Written by Olaf Kirch <okir@suse.com>
 
+##################################################################
+# Check whether a TPM is present and working reasonably well
+##################################################################
+function tpm_present_and_working {
+
+    if ! tpm2_selftest -V -f; then
+	fde_trace "This system does not have a TPM2 chip. Full disk encryption not available"
+	return 1
+    fi
+
+    return 0
+}
+
 
 ##################################################################
 # Predict the set of PCR values that the TPM chip will hold at

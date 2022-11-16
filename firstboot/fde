@@ -23,6 +23,7 @@
 . /usr/share/fde/util
 . /usr/share/fde/luks
 . /usr/share/fde/tpm
+. /usr/share/fde/uefi
 . /usr/share/fde/grub2
 
 # dialog functions that use the firstboot plumbing
@@ -177,16 +178,6 @@ function fde_setup_unencrypted {
     return 0
 }
 
-
-function tpm_present_and_working {
-
-    if ! tpm2_selftest -V -f; then
-	fde_trace "This system does not have a TPM2 chip. Full disk encryption not available"
-	return 1
-    fi
-
-    return 0
-}
 
 function __fde_valid_protections {
 
