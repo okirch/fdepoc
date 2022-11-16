@@ -89,6 +89,29 @@ function request_password {
 
     prompt="$1"
 
+    if ! d --no-cancel --insecure --passwordbox "${prompt}" 8 50; then
+	result_password=""
+	return 1
+    fi
+    result_password="${result}"
+    return 0
+}
+
+##################################################################
+# request_new_password MESSAGE
+#	Prompt the user for a password, using the first argument
+#	as prompt message. Have the user confirm the password to
+#	avoid typos.
+#	On success, it sets the global variable result_password
+#	and returns 0.
+#	If the user cancelled the dialog, it returns 1.
+##################################################################
+function request_new_password {
+
+    declare -g result_password
+
+    prompt="$1"
+
     result_password=""
 
     attempt=0

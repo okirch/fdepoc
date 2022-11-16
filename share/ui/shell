@@ -43,6 +43,27 @@ function request_password {
     declare -g result_password
 
     prompt="$1"
+
+    echo -n "$prompt: "
+    read -s result_password
+
+    return 0
+}
+
+##################################################################
+# request_new_password MESSAGE
+#	Prompt the user for a password, using the first argument
+#	as prompt message. Have the user confirm the password to
+#	avoid typos.
+#	On success, it sets the global variable result_password
+#	and returns 0.
+#	If the user cancelled the dialog, it returns 1.
+##################################################################
+function request_new_password {
+
+    declare -g result_password
+
+    prompt="$1"
     defpass=$2
 
     result_password=""

@@ -28,6 +28,14 @@
 #	and returns 0.
 #	If the user cancelled the dialog, it returns 1.
 #
+# request_new_password MESSAGE
+#	Prompt the user for a new password, using the first argument
+#	as prompt message. Have the user confirm the password to
+#	avoid typos.
+#	On success, it sets the global variable result_password
+#	and returns 0.
+#	If the user cancelled the dialog, it returns 1.
+#
 # display_gauge MESSAGE
 #	Display a gauge meter like "dialog --gauge" does. This
 #	function receives integer values from 0 to 100 on standard
@@ -172,7 +180,7 @@ function luks_drop_key {
 
 ##################################################################
 # Change an existing password
-# This function uses request_password to prompt the user for
+# This function uses request_new_password to prompt the user for
 # the new password.
 ##################################################################
 function luks_change_password {
@@ -189,7 +197,7 @@ function luks_change_password {
 	luks_old_password="$result_password"
     fi
 
-    request_password "Please enter new LUKS recovery password."
+    request_new_password "Please enter new LUKS recovery password."
     if [ -z "$result_password" ]; then
         fde_trace "Unable to obtain new recovery password"
 	return 1
@@ -213,7 +221,7 @@ function luks_add_password {
     local luks_dev=$1
     local luks_keyfile="$2"
 
-    request_password "Please enter new LUKS recovery password."
+    request_new_password "Please enter new LUKS recovery password."
     if [ -z "$result_password" ]; then
         echo "Unable to obtain new recovery password" >&2
 	return 1
