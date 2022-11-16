@@ -55,11 +55,11 @@ function d_stolen_from_jeos {
 	done
 }
 
-case $(type d 2>/dev/null)
-"d is a function"*)
-    : ;;
-*)  alias d=d_stolen_from_jeos;;
-esac
+# If we're used by jeos-firstboot, d() will already be defined. If not,
+# overwrite it with ours.
+if [ "$(type -t d)" != "function" ]; then
+    alias d=d_stolen_from_jeos
+fi
 
 ##################################################################
 # Display an error box
