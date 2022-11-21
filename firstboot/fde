@@ -269,6 +269,7 @@ function fde_systemd_firstboot {
     display_infobox "Full Disk Encryption with TPM2 support"
 
     set -x
+    exec 2>/var/log/fde-firstboot.log
 
     if [ ! -f "$KIWI_ROOT_KEYFILE" ]; then
 	display_errorbox "Missing $KIWI_ROOT_KEYFILE. FDE setup will most likely fail."
@@ -276,7 +277,7 @@ function fde_systemd_firstboot {
 
     # FIXME: rather than hard-coding the recovery password here,
     # have kiwi write it to /.root.something and read it from there
-    fde_firstboot $(luks_device_for_path "/") "$KIWI_ROOT_KEYFILE" "$KIWI_ROOT_PASSPHRASE" 2>/var/log/fde-firstboot.log
+    fde_firstboot $(luks_device_for_path "/") "$KIWI_ROOT_KEYFILE" "$KIWI_ROOT_PASSPHRASE"
 
     set +x
 
