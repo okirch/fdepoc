@@ -105,7 +105,10 @@ function grub_update_early_config {
     grub_set_control GRUB_TPM2_PCR_LIST "$sealed_pcr_list"
     grub_set_control GRUB_CRYPTODISK_PASSWORD ""
 
-    grub_cfg_file="${grub_dir}/grub.cfg"
-    grub2-mkconfig --output "${grub_cfg_file}.new"
-    mv $grub_cfg_file.new $grub_cfg_file
+    extra_opts=
+    if [ -d /boot/efi/EFI/BOOT ]; then
+	extra_opts="--removable"
+    fi
+
+    shim-install --no-grub-install $extra_opts
 }
