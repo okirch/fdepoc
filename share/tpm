@@ -50,32 +50,22 @@ function tpm_build_pcrset {
     grub_cfg="$1"
 
     echo "Building PCR set for $FDE_SEAL_PCR_LIST" >&2
-    for index in ${FDE_SEAL_PCR_LIST//,/ }; do
-	case $index in
-	9)
-	    # we need to predict the value of PCR 9 exactly after reading
-	    # grub.cfg from the EFI partition of the installed system.
-	    # Note: grub must not hash the sealed key file to PCR9 when
-	    # loading it else we're in trouble :-)
-	    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" --format binary \
-			--from-zero 9 \
-			file "${grub_cfg}"
+    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
+			--format binary \
+			--from eventlog \
+			--stop-event grub-command=cryptomount \
+			--before \
+			"$FDE_SEAL_PCR_LIST"
 
-	    if $FDE_TRACING; then
-		    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
-			--from-zero 9 \
-			file "${grub_cfg}" >&2
-	    fi;;
-	*)
-	    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" --format binary \
-			--from-snapshot $index
-
-	    if $FDE_TRACING; then
-		    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
-			--from-snapshot $index >&2
-	    fi;;
-	esac
-    done
+    if $FDE_TRACING; then
+	    # like above, except as human readable output, and
+	    # redirected to stderr (ie the tracing log)
+	    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
+				--from eventlog \
+				--stop-event grub-command=cryptomount \
+				--before \
+				"$FDE_SEAL_PCR_LIST" >&2
+    fi
 }
 
 function tpm_policy_options {
