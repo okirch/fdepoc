@@ -28,6 +28,20 @@ function grub_set_control {
 }
 
 ##################################################################
+# Obtain the password that the root partition was encrypted with.
+##################################################################
+function grub_get_fde_password {
+
+    . /etc/default/grub
+
+    if [ -z "$GRUB_CRYPTODISK_PASSWORD" ]; then
+	return 1
+    fi
+
+    echo "$GRUB_CRYPTODISK_PASSWORD"
+}
+
+##################################################################
 # Change the cryptomount command in early boot grub.cfg
 # This turns something like this:
 #	cryptomount -u XX-YY-ZZ -p defpass

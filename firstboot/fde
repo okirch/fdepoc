@@ -37,7 +37,6 @@ fi
 # Values and locations used by KIWI
 ##################################################################
 KIWI_ROOT_KEYFILE=/root/.root.keyfile
-KIWI_ROOT_PASSPHRASE="1234"
 
 function fde_protect_tpm {
 
@@ -283,13 +282,20 @@ function fde_systemd_firstboot {
     set -x
     exec 2>/var/log/fde-firstboot.log
 
-    if [ ! -f "$KIWI_ROOT_KEYFILE" ]; then
-	display_errorbox "Missing $KIWI_ROOT_KEYFILE. FDE setup will most likely fail."
+    # Get the password that was used during installation.
+    fde_root_passphrase=$(grub_get_fde_password)
+    if [ -z "$fde_root_passphrase" ]; then
+	display_errorbox "Cannot find the initial FDE password for the root file system"
+	return 1
+    fi
+
+    if [ ! -s "$KIWI_ROOT_KEYFILE" ]; then
+	KIWI_ROOT_KEYFILE=""
     fi
 
     # FIXME: rather than hard-coding the recovery password here,
     # have kiwi write it to /.root.something and read it from there
-    fde_firstboot $(luks_device_for_path "/") "$KIWI_ROOT_KEYFILE" "$KIWI_ROOT_PASSPHRASE"
+    fde_firstboot $(luks_device_for_path "/") "$KIWI_ROOT_KEYFILE" "$fde_root_passphrase"
 
     set +x
 
