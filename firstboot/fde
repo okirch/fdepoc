@@ -51,6 +51,15 @@ function fde_protect_tpm {
     return $?
 }
 
+function fde_protect_notpm {
+
+    local luks_dev=$1
+
+    grub_enable_fde_without_tpm
+
+    return $?
+}
+
 function fde_setup_encrypted {
 
     root_dev=$1
@@ -62,7 +71,7 @@ function fde_setup_encrypted {
     with_ccid=false
 
     for method in $FDE_PROTECTION; do
-    	case $method in
+	case $method in
 	pass) with_pass=true;;
 	tpm)  with_tpm=true;;
 	ccid) with_ccid=true;;
@@ -71,13 +80,13 @@ function fde_setup_encrypted {
 
     if ! [[ "$root_dev" =~ /dev/mapper/.* ]]; then
 	display_errorbox "root device $root_dev does not look like a dm device"
-        return 1
+	return 1
     fi
 
     luks_name=$(expr "$root_dev" : ".*/\(.*\)")
     luks_dev=$(luks_get_underlying_device "$luks_name")
     if [ -z "$luks_dev" ]; then
-        display_errorbox "Unable to determine underlying LUKS device for $root_dev"
+	display_errorbox "Unable to determine underlying LUKS device for $root_dev"
 	return 1
     fi
 
@@ -86,61 +95,71 @@ function fde_setup_encrypted {
 	return 1
     fi
 
+    luks_current_password="${luks_recovery_pass}"
+
+    # Check if the installer/imager has created a secondary slot that is protected
+    # by a random key.
+    # "cryptsetup reencrypt" doesn't really deal all that well with a LUKS
+    # header that has more than one valid key slot. To avoid any ugly gymnastics,
+    # simply drop that slot.
+    if [ -n "$luks_keyfile" ]; then
+	if ! luks_drop_key "${luks_dev}" "${luks_keyfile}"; then
+	    display_errorbox "Failed to remove initial random key"
+	    return 1
+	fi
+	rm -f "${luks_keyfile}"
+	luks_keyfile=""
+    fi
+
     # Change the built-in recovery password to the one provided by the user
-    if $with_pass && ! luks_change_password "${luks_dev}" "${luks_recovery_pass}"; then
-	display_errorbox "Failed to change recovery password."
-	with_pass=false
-    fi
-
-    # "cryptsetup reencrypt" requires to specify the key slot number (--key-slot) if
-    # there are multiple key slots and only the specified key slot will survive after
-    # reencryption. There are two key slots already in the partition: one for the
-    # password and the other one for the random key. To avoid the additional key slot
-    # parameter, drop the old random key if the user chooses a recovery password.
-    # Otherwise, drop the password key slot.
+    # FIXME: only do this if the password is well-known, eg when dealing with a VM image
+    # shipped by us.
     if $with_pass; then
-        # Drop the random key slot and use the password for reencryption
-        if ! luks_drop_key "${luks_dev}" "${luks_keyfile}"; then
-            display_errorbox "Failed to remove initial random key"
-            return 1
-        fi
+	if luks_change_password "${luks_dev}" "${luks_current_password}"; then
+	    luks_current_password="${result_password}"
+	else
+	    display_errorbox "Failed to change recovery password."
+	    with_pass=false
+	fi
+    fi
 
-        # Reencrypt with the new password
-        pass_keyfile=$(luks_write_password pass "${result_password}")
-        luks_reencrypt "${luks_dev}" "${pass_keyfile}"
+    # Reencrypt with the new password
+    # FIXME: only do this if the LUKS master key is well-known, eg when dealing with
+    # a VM image.
+    pass_keyfile=$(luks_write_password pass "${luks_current_password}")
+    luks_reencrypt "${luks_dev}" "${pass_keyfile}"
 
-        # Generate a random key again
-        luks_add_random_key "${luks_dev}" "${pass_keyfile}" "${luks_keyfile}"
+    if $with_tpm; then
+	# Generate a random key again
+	luks_keyfile="/root/.root.keyfile"
+	luks_add_random_key "${luks_dev}" "${pass_keyfile}" "${luks_keyfile}"
 
-        # Remove the password file
-        rm -f ${pass_keyfile}
+	# FIXME: fde_protect_tpm should not have to change key slot key any more.
+	if ! fde_protect_tpm "${luks_dev}" "${luks_keyfile}"; then
+	    display_errorbox "Failed to protect encrypted volume with TPM"
+	    with_tpm=false
+	fi
+
+	rm -f "${luks_keyfile}"
+	luks_keyfile=""
     else
-        # Drop the password key slot and use the random key for reencryption
-        if ! luks_drop_pass "${luks_dev}" "${luks_recovery_pass}"; then
-            display_errorbox "Failed to remove initial password"
-            return 1
-        fi
-
-        # Reencrypt with the old random key
-        luks_reencrypt "${luks_dev}" "${luks_keyfile}"
+	# Update grub.cfg to attempt a cryptomount and ask the user for the
+	# password
+	if ! fde_protect_notpm "${luks_dev}"; then
+	    display_errorbox "Failed to protect encrypted volume with password"
+	    with_pass=false
+	fi
     fi
 
-    if $with_tpm && ! fde_protect_tpm "${luks_dev}" "${luks_keyfile}"; then
-	display_errorbox "Failed to protect encrypted volume with TPM"
-	with_tpm=false
-    fi
+    # Remove the password file
+    rm -f ${pass_keyfile}
 
     if $with_pass || $with_tpm || $with_ccid; then
-    	: all is well
+	: all is well
     else
 	return 1
     fi
 
-    # Normally, kiwi wants to keep the "key" that unlocks LUKS in .root.keyfile.
-    # However, since we're protecting that key with the TPM now, there's no
-    # need to keep a secret bit of data around as clear-text, copying it into
-    # initrd and potentially leaking it.
-    rm -f "${luks_keyfile}"
 }
 
 function fde_setup_unencrypted {
