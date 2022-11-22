@@ -44,14 +44,8 @@ prepare)
 		--root $BUILD_ROOT;;
 
 create)
-	FDE_SCRIPT="$BUILD_BASE/root/usr/share/jeos-firstboot/modules/fde"
 	if true; then
-		if ! cmp -s firstboot/fde $FDE_SCRIPT; then
-			echo "***********"
-			echo "FDE firstboot script changed, overwriting"
-			cp -v firstboot/fde $FDE_SCRIPT
-			echo "***********"
-		fi
+		make DESTDIR="$BUILD_BASE/root" install
 	fi
 
 	kiwi-ng --profile $IMGFLAVOR \
