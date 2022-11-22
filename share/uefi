@@ -70,3 +70,15 @@ function uefi_get_current_loader {
     realpath "/boot/efi/$file"
 }
 
+function uefi_get_current_efidir {
+
+    if [ -d /boot/efi/EFI/BOOT ]; then
+	echo /boot/efi/EFI/BOOT
+	return
+    fi
+
+    loader=$(uefi_get_current_loader)
+    if [ -n "$loader" ]; then
+	dirname "$loader"
+    fi
+}

@@ -17,6 +17,8 @@
 #
 #   Written by Olaf Kirch <okir@suse.com>
 
+. /etc/sysconfig/fde-tools
+
 ##################################################################
 # Edit a variable in /etc/default/grub
 ##################################################################
@@ -94,10 +96,9 @@ function grub_update_early_config_old {
 
 function grub_update_early_config {
 
-    grub_dir="$1"
-    sealed_key_file="$2"
-    sealed_pcr_bank="$3"
-    sealed_pcr_list="$4"
+    sealed_key_file="$1"
+    sealed_pcr_bank="$2"
+    sealed_pcr_list="$3"
 
     grub_set_control GRUB_ENABLE_CRYPTODISK "y"
     grub_set_control GRUB_TPM2_SEALED_KEY "$sealed_key_file"
@@ -111,4 +112,20 @@ function grub_update_early_config {
     fi
 
     shim-install --no-grub-install $extra_opts
+}
+
+function grub_enable_fde_with_tpm {
+
+    luks_keyfile="$1"
+
+    grub_efi_dir=$(uefi_get_current_efidir)
+    if [ -z "$grub_efi_dir" ]; then
+	return 1
+    fi
+
+    # First update grub.cfg...
+    grub_update_early_config sealed.key "$FDE_SEAL_PCR_BANK" "$FDE_SEAL_PCR_LIST"
+
+    # ... then seal the key against a PCR9 value that covers grub.cfg
+    tpm_seal_secret "${luks_keyfile}" "${grub_efi_dir}" "$grub_efi_dir/sealed.key"
 }

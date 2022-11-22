@@ -46,14 +46,7 @@ function fde_protect_tpm {
 
     luks_set_random_key "${luks_dev}" "${luks_keyfile}"
 
-    efi_grub_dir=/boot/efi/EFI/BOOT
-
-    # First update grub.cfg...
-    grub_update_early_config "$efi_grub_dir" sealed.key \
-				"$FDE_SEAL_PCR_BANK" "$FDE_SEAL_PCR_LIST"
-
-    # ... then seal the key against a PCR9 value that covers grub.cfg
-    tpm_seal_secret "${luks_keyfile}" "${efi_grub_dir}" "$efi_grub_dir/sealed.key"
+    grub_enable_fde_with_tpm "${luks_keyfile}"
 
     return $?
 }
