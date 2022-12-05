@@ -262,10 +262,12 @@ function luks_set_random_key {
     cryptsetup --key-file "${luks_keyfile}" luksChangeKey \
 		--pbkdf "$FDE_LUKS_PBKDF" --pbkdf-force-iterations 1000 \
 		$luks_dev $new_keyfile
+    ret=$?
 
     cp $new_keyfile "${luks_keyfile}"
     rm -f $new_keyfile
 
+    return $ret
 }
 
 function luks_reencrypt {
