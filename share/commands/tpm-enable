@@ -1,0 +1,54 @@
+
+dm_name=$(luks_dm_name_for_device "$opt_device")
+if [ -z "$dm_name" ]; then
+    display_errorbox "Cannot find the volume name for $opt_device (not a LUKS partition?)"
+    exit 1
+fi
+
+luks_dev=$(luks_get_underlying_device "$dm_name")
+if [ -z "$luks_dev" ]; then
+    display_errorbox "Cannot find the underlying partition of volume $dm_name (not a LUKS partition?)"
+    exit 1
+fi
+
+if ! tpm_test $FDE_KEY_SIZE_BYTES; then
+    display_errorbox "TPM key sealing and unsealing does not seem to work"
+    exit 1
+fi
+
+if [ -z "$opt_keyfile" ]; then
+    luks_keyfile="$opt_keyfile"
+    luks_new_keyfile=$(fde_make_tempfile new.key)
+    cp "$luks_keyfile" "$luks_new_keyfile"
+
+    # We consider the key compromised, because it resided on disk - even if only
+    # for a short amount of time. It may have made its way into a btrfs snapshot,
+    # which may hang around forever...
+    # So what we do here is generate a new key and replace the key slot with the
+    # compromised key with this new key. Note that the new key is created below
+    # /dev/shm, which is an in-memory file system.
+    if ! luks_set_random_key "$luks_dev" "$luks_new_keyfile"; then
+	display_errorbox "Failed to change secondary LUKS key"
+	rm -f "$luks_keyfile" "$luks_new_keyfile"
+	exit 1
+    fi
+
+    rm -f "$luks_keyfile"
+    luks_keyfile="$luks_new_keyfile"
+else
+    request_password "Please enter LUKS recovery password"
+    if [ -z "$result_password" ]; then
+        display_errorbox "Unable to obtain recovery password; aborting."
+        return 1
+    fi
+
+    luks_keyfile=$(luks_write_password pass "${result_password}")
+fi
+
+if ! fde_protect_tpm "${luks_dev}" "${luks_keyfile}"; then
+    display_errorbox "Failed to protect encrypted volume with TPM"
+    rm -f "$luks_keyfile"
+    exit 1
+fi
+
+rm -f "$luks_keyfile"

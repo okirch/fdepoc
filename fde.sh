@@ -7,6 +7,7 @@
 opt_bootloader=grub2
 opt_device=/
 opt_ui=shell
+opt_keyfile=""
 
 function fde_usage {
 
@@ -25,9 +26,12 @@ Global options:
 	Specify the boot loader being used [grub2].
   --use-dialog
 	Use the dialog(1) utility to interact with the user.
+  --keyfile
+	Specify the path to a LUKS key for use with tpm-enable.
 
 Commands:
   passwd - change the password protecting the partition
+  tpm-enable - enable TPM protection
 EOF
 }
 
@@ -72,6 +76,8 @@ while [ $# -gt 0 ]; do
     	opt_device=$1; shift;;
     --use-dialog)
     	opt_ui=dialog;;
+    --keyfile)
+	opt_keyfile=$1; shift;;
     *)
     	fde_bad_option "Unsupported option $next";;
     esac
