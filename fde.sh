@@ -106,6 +106,8 @@ if [ "$opt_bootloader" != "grub2" -a "$opt_bootloader" != "systemd-boot" ]; then
     fde_bad_argument "Unsupported boot loader \"$opt_bootloader\""
 fi
 
+trap fde_clean_tempdir 0 1 2 11 15
+
 . /etc/sysconfig/fde-tools
 . "$SHAREDIR/ui/$opt_ui"
 . "$SHAREDIR/util"
