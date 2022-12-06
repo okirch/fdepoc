@@ -1,4 +1,4 @@
-PKGNAME		= fde-tools-0.5
+PKGNAME		= fde-tools-0.6
 
 CCOPT		= -O0 -g
 SBINDIR		= /sbin
@@ -16,7 +16,9 @@ LIBSCRIPTS	= grub2 \
 		  util \
 		  ui/dialog \
 		  ui/shell \
-		  commands/passwd
+		  commands/passwd \
+		  commands/tpm-enable \
+		  commands/tpm-present
 
 _LIBSCRIPTS	= $(addprefix share/,$(LIBSCRIPTS))
 

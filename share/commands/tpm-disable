@@ -1,0 +1,2 @@
+echo "TPM Disable not yet implemented." >&2
+exit 1

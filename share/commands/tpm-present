@@ -1,0 +1,2 @@
+tpm_present_and_working
+exit $?

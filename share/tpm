@@ -23,7 +23,7 @@
 function tpm_present_and_working {
 
     if ! tpm2_selftest -V -f; then
-	fde_trace "This system does not have a TPM2 chip. Full disk encryption not available"
+	fde_trace "This system does not have a TPM2 chip. Full disk encryption with TPM protection not available"
 	return 1
     fi
 

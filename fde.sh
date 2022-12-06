@@ -31,7 +31,9 @@ Global options:
 
 Commands:
   passwd - change the password protecting the partition
+  tpm-present - check whether a TPM2 chip is present and working
   tpm-enable - enable TPM protection
+  tpm-disable - disable TPM protection
 EOF
 }
 
