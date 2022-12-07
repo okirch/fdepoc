@@ -40,7 +40,7 @@ install::
 		cp -v share/$$name $(DESTDIR)$(FDE_SHARE_DIR)/$$d; \
 	done
 	@mkdir -p $(DESTDIR)$(SBINDIR)
-	@install -m 555 -v fde.sh $(DESTDIR)$(SBINDIR)/fde
+	@install -m 555 -v fde.sh $(DESTDIR)$(SBINDIR)/fdectl
 
 clean:
 	rm -f $(TOOLS)

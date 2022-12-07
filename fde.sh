@@ -51,25 +51,23 @@ function fde_bad_argument {
     exit 2
 }
 
-long_options="help,bootloader:,device:,use-dialog"
+long_options="help,bootloader:,device:,use-dialog,keyfile:"
 
-if ! getopt -Q -n fde -l "$long_options" -o h -- "$@"; then
+if ! getopt -Q -n fdectl -l "$long_options" -o h -- "$@"; then
     fde_usage
     exit 1
 fi
 
-eval set $(getopt -n fde -l "$long_options" -o h -- "$@")
+eval set -- $(getopt -n fdectl -l "$long_options" -o h -- "$@")
 
 command=
 while [ $# -gt 0 ]; do
     next="$1"
-    if [[ $next != -* ]]; then
-	command=$next
-	break
-    fi
     shift
 
     case $next in
+    --)
+	command=$1; shift; break;;
     -h|--help)
     	fde_usage
 	exit 0;;
