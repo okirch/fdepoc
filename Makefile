@@ -32,7 +32,7 @@ install::
 	@mkdir -p $(DESTDIR)$(FIRSTBOOTDIR)/modules
 	@cp -v firstboot/fde $(DESTDIR)$(FIRSTBOOTDIR)/modules/fde
 	@mkdir -p $(DESTDIR)$(SYSCONFIGDIR)
-	@cp -v sysconfig.fde $(DESTDIR)$(SYSCONFIGDIR)/fde
+	@cp -v sysconfig.fde $(DESTDIR)$(SYSCONFIGDIR)/fde-tools
 	@mkdir -p $(DESTDIR)$(FDE_SHARE_DIR)
 	@for name in $(LIBSCRIPTS); do \
 		d=$$(dirname $$name); \
