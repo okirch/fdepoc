@@ -1,3 +1,4 @@
+. $SHAREDIR/tpm
 
 dm_name=$(luks_dm_name_for_device "$opt_device")
 if [ -z "$dm_name" ]; then
