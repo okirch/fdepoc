@@ -30,6 +30,7 @@ Global options:
 	Specify the path to a LUKS key for use with tpm-enable.
 
 Commands:
+  help - display this message
   passwd - change the password protecting the partition
   tpm-present - check whether a TPM2 chip is present and working
   tpm-enable - enable TPM protection
@@ -87,6 +88,11 @@ done
 
 if [ -z "$command" ]; then
     fde_bad_option "Missing subcommand"
+fi
+
+if [ "$command" = "help" ]; then
+    fde_usage
+    exit 0
 fi
 
 if [ ! -e "$SHAREDIR/commands/$command" ]; then
