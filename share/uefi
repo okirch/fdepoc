@@ -19,21 +19,6 @@
 
 
 ##################################################################
-# Helper to read SecureBoot and SetupMode
-##################################################################
-function get_efivar_binary_byte {
-
-    name="$1"
-    path="/sys/firmware/efi/efivars/$name"
-    if [ ! -f "$path" ]; then
-	echo "n/a"
-    else
-	# read the EFI variable, skipping over the initial attribute word (32bit)
-	dd if="$path" bs=1 skip=4 | tr '\0\1' '01'
-    fi
-}
-
-##################################################################
 # Check if UEFI Secure Boot is enabled
 ##################################################################
 function uefi_secure_boot_enabled {
@@ -43,10 +28,8 @@ function uefi_secure_boot_enabled {
 	return 1
     fi
 
-    secure_boot=$(get_efivar_binary_byte SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c)
-    setup_mode=$(get_efivar_binary_byte SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c)
-    if [ "$secure_boot" != 1 -a "$setup_mode" != 0 ]; then
-	fde_trace "Secure Boot not enabled (secure_boot=$secure_boot; setup_mode=$setup_mode)"
+    if ! mokutil --sb-state 2> /dev/null | grep -q "enabled" ; then
+	fde_trace "Secure Boot not enabled"
 	return 1
     fi
 
