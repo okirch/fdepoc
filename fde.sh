@@ -9,6 +9,11 @@ opt_device=/
 opt_ui=shell
 opt_keyfile=""
 
+##################################################################
+# Display a usage message.
+# We do not document the add-secondary-key command, because it's
+# purely for the installer.
+##################################################################
 function fde_usage {
 
     cat >&2 <<EOF

@@ -17,6 +17,7 @@ LIBSCRIPTS	= grub2 \
 		  ui/dialog \
 		  ui/shell \
 		  commands/passwd \
+		  commands/add-secondary-key \
 		  commands/tpm-enable \
 		  commands/tpm-present
 
