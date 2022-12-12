@@ -7,6 +7,7 @@
 
 OKIR_IMG_URL=https://download.opensuse.org/repositories/home:/okir:/FDE/images/
 ALP_IMG_URL=https://download.opensuse.org/repositories/SUSE:/ALP/images/
+D_INSTALLER_IMG_URL=https://download.opensuse.org/repositories/YaST:/Head:/D-Installer/images/iso/
 
 # As long as ALP uses its own buildcert to sign Secure Boot related code,
 # KVM needs a special set of SB variables:
@@ -20,6 +21,7 @@ DEFAULT_VM_NAME="alp-demo"
 ALP_OS_VARIANT=opensuse15.3
 ALP_OS_VARIANT=opensusetumbleweed
 
+ALP_IMG_PATTERN=
 
 function usage {
 
@@ -60,8 +62,9 @@ opt_persistent=false
 opt_sb_auth=alp
 opt_img_flavor=kvm_encrypted
 opt_run=libvirt
+opt_cdrom=false
 
-eval set -- $(getopt -l no-fde,sb-auth:,cachedir:,name:,force,persistent,help,okir,qemu A:C:N:fh "$@")
+eval set -- $(getopt -l no-fde,sb-auth:,cachedir:,name:,force,persistent,help,okir,qemu,dinstall A:C:N:fh "$@")
 while [ $# -gt 0 ]; do
 	opt=$1; shift
 	case $opt in
@@ -83,6 +86,12 @@ while [ $# -gt 0 ]; do
 		ALP_IMG_URL=$OKIR_IMG_URL
 		DEFAULT_IMG_CACHE="$DEFAULT_IMG_CACHE/okir"
 		opt_sb_auth=okir;;
+	--dinstall)
+		ALP_IMG_URL=$D_INSTALLER_IMG_URL
+		opt_img_flavor=d-installer
+		ALP_IMG_PATTERN="d-installer-live.x86_64-.*-ALP-Build.*.iso"
+		opt_persistent=true
+		opt_cdrom=true;;
 	--qemu)
 		opt_run=qemu;;
 	--)	break;;
@@ -108,9 +117,14 @@ esac
 
 function identify_image {
 
+	img_pattern="$ALP_IMG_PATTERN"
+	if [ -z "$ALP_IMG_PATTERN" ]; then
+		img_pattern="ALP-VM.x86_64.*-${opt_img_flavor}-.*"'\.qcow2$'
+	fi
+
 	 wget -nv "$ALP_IMG_URL" -O - |
 	 	tr '<>' '\012\012' | sed '/^a href="\(.*\)"/!d;s//\1/' |
-		grep "ALP-VM.x86_64.*-${opt_img_flavor}-.*"'\.qcow2$' |
+		grep "$img_pattern\$" |
 		sort -u
 }
 
@@ -258,6 +272,13 @@ function run_libvirt {
 		extra_options+=" --transient"
 	fi
 
+	image_options=
+	if ! $opt_cdrom; then
+		image_options="--disk $image,bus=sata"
+	else
+		image_options="--cdrom $image"
+	fi
+
 	set -x
 	exec virt-install --name $vm_name \
 		--os-variant="$ALP_OS_VARIANT" \
@@ -265,7 +286,7 @@ function run_libvirt {
 		--boot hd \
 		--boot "loader=$UEFI_CODE_FILE,loader_ro=yes,loader_type=pflash,loader_secure=yes,nvram_template=$UEFI_VARS_FILE" \
 		--import \
-		--disk $image,bus=sata \
+		$image_options \
 		--memory 2048 \
 		--console pty,target_type=virtio \
 		--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis \
