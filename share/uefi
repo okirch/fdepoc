@@ -24,7 +24,7 @@
 function uefi_secure_boot_enabled {
 
     if ! [ -d /sys/firmware/efi ]; then
-	fde_trace "This system does not seem to use UEFI. Full disk encryption not available"
+	fde_trace "This system does not seem to use UEFI. Full disk encryption with TPM protection not available"
 	return 1
     fi
 
@@ -54,11 +54,6 @@ function uefi_get_current_loader {
 }
 
 function uefi_get_current_efidir {
-
-    if [ -d /boot/efi/EFI/BOOT ]; then
-	echo /boot/efi/EFI/BOOT
-	return
-    fi
 
     loader=$(uefi_get_current_loader)
     if [ -n "$loader" ]; then
