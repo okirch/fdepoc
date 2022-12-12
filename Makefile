@@ -1,4 +1,4 @@
-PKGNAME		= fde-tools-0.6
+PKGNAME		= fde-tools-0.6.1
 
 CCOPT		= -O0 -g
 SBINDIR		= /sbin
