@@ -57,6 +57,6 @@ build/%.o: src/%.c
 dist:
 	mkdir -p $(PKGNAME)
 	cp -a Makefile sysconfig.fde fde.sh src share firstboot $(PKGNAME)
-	@find $(PKGNAME) -name '.*.swp' -o -name '*.{rej,orig}' | xargs -t rm
+	@find $(PKGNAME) -name '.*.swp' -o -name '*.{rej,orig}' -exec rm {} \;
 	tar -cvjf $(PKGNAME).tar.bz2 $(PKGNAME)/*
 	rm -rf $(PKGNAME)
