@@ -56,6 +56,25 @@ function fde_bad_argument {
     exit 2
 }
 
+function fde_identify_fs_root {
+
+    var_name=$1
+
+    case $opt_device in
+    /dev/*)
+	fsdev="$opt_device";;
+    /*)
+	fsdev=$(luks_device_for_path "$opt_device")
+	if [ ! -b "$fsdev" ]; then
+	    fde_bad_argument "Unable to determine partition to operate on"
+	fi
+	;;
+    *)  fde_bad_argument "Don't know how to handle device \"$opt_device\"";;
+    esac
+
+    declare -g $var_name="$fsdev"
+}
+
 long_options="help,bootloader:,device:,use-dialog,keyfile:"
 
 if ! getopt -Q -n fdectl -l "$long_options" -o h -- "$@"; then
@@ -102,16 +121,6 @@ if [ ! -e "$SHAREDIR/commands/$command" ]; then
     fde_bad_option "Unsupported command \"$command\""
 fi
 
-case $opt_device in
-/dev/*) : ;;
-/*)
-    opt_device=$(luks_device_for_path "$opt_device")
-    if [ ! -b "$opt_device" ]; then
-	fde_bad_argument "Unable to determine partition to operate on"
-    fi
-    ;;
-*)  fde_bad_argument "Don't know how to handle device \"$opt_device\"";;
-esac
 
 if [ "$opt_bootloader" != "grub2" -a "$opt_bootloader" != "systemd-boot" ]; then
     fde_bad_argument "Unsupported boot loader \"$opt_bootloader\""
