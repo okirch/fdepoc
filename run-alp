@@ -119,7 +119,7 @@ function identify_image {
 
 	img_pattern="$ALP_IMG_PATTERN"
 	if [ -z "$ALP_IMG_PATTERN" ]; then
-		img_pattern="ALP-VM.x86_64.*-${opt_img_flavor}-.*"'\.qcow2$'
+		img_pattern="ALP-VM.x86_64.*-${opt_img_flavor}-.*\\.qcow2"
 	fi
 
 	 wget -nv "$ALP_IMG_URL" -O - |
