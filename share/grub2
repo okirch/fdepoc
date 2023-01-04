@@ -123,7 +123,12 @@ function grub_update_early_config {
 	grub_set_control GRUB_TPM2_PCR_LIST "$sealed_pcr_list"
     fi
 
-    shim-install --no-grub-install
+    extra_opts=
+    if [ "$(ls /boot/efi/EFI)" = "BOOT" ]; then
+	extra_opts="--removable"
+    fi
+
+    shim-install --no-grub-install $extra_opts
 }
 
 function grub_enable_fde_with_tpm {
