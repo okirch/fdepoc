@@ -18,7 +18,6 @@
 #   Written by Olaf Kirch <okir@suse.com>
 
 . /etc/sysconfig/fde-tools
-. $SHAREDIR/uefi
 
 ##################################################################
 # Edit a variable in /etc/default/grub

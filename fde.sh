@@ -142,6 +142,11 @@ fi
 
 trap fde_clean_tempdir 0 1 2 11 15
 
+. "$SHAREDIR/uefi"
+if [ -n "$opt_uefi_bootdir" ]; then
+    uefi_set_loader "$opt_uefi_bootdir"
+fi
+
 . "$opt_rootdir/etc/sysconfig/fde-tools"
 . "$SHAREDIR/ui/$opt_ui"
 . "$SHAREDIR/util"
