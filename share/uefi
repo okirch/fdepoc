@@ -44,8 +44,22 @@ function uefi_get_current_loader {
 	return 1
     fi
 
-    file=$(efibootdump "Boot$entry" | sed 's:.*File(\([^)]*\)).*:\1:' | tr '\\' /)
-    if [ -z "$entry" ]; then
+    file=$(efibootdump "Boot$entry" | sed 's/.*File(\([^)]*\)).*/\1/;t;d' | tr '\\' /)
+
+    # Some boot setups do not use an EFI path with a file component.
+    # Our ALP kvm images built with kiwi fall into that category.
+    #
+    # As a fallback, check if there is exactly one grub entry in /boot/efi,
+    # and if so, use that.
+    if [ -z "$file" -a -d "/boot/efi/EFI" ]; then
+	set -- /boot/efi/EFI/*/grub.cfg
+	if [ $# -eq 1 -a -f "$1" ]; then
+		realpath $1
+		return 0
+	fi
+    fi
+
+    if [ -z "$file" ]; then
 	fde_trace "Cannot determine loader path for UEFI boot entry $entry"
 	return 1
     fi
