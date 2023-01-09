@@ -203,7 +203,18 @@ function tpm_seal_secret {
 
     secret="$1"
     efi_grub_dir="$2"
-    sealed_secret=$3
+    sealed_secret="$3"
+    authorized_policy="$4"
+
+    # If we are expected to use an authorized policy, seal the secret
+    # against that, using pcr-oracle rather than the tpm2 tools
+    if [ -n "$authorized_policy" ]; then
+	pcr-oracle --authorized-policy "$authorized_policy" \
+			--input $secret \
+			--output $sealed_secret \
+			seal-secret
+	return $?
+    fi
 
     # Construct a set of PCR values against which to seal the key.
     # Most of these come straight from the PCR snapshot taken by tpm_record_pcrs
@@ -227,3 +238,66 @@ function tpm_seal_secret {
     rm -f "${pcr_values_file}"
 }
 
+##################################################################
+# Authorized policy support
+##################################################################
+function tpm_set_authorized_policy_paths {
+
+    policy_name="$1"
+
+    # Note, caller is expected to set FDE_CONFIG_DIR
+    # (usually to $rootdir/etc/fde).
+    declare -g FDE_AP_CONFIG_DIR="$FDE_CONFIG_DIR/$policy_name"
+    declare -g FDE_AP_SECRET_KEY="$FDE_AP_CONFIG_DIR/secret-key.pem"
+    declare -g FDE_AP_AUTHPOLICY="$FDE_AP_CONFIG_DIR/authorized-policy.tpm"
+    declare -g FDE_AP_PUBLIC_KEY="$FDE_AP_CONFIG_DIR/public-key.tpm"
+    declare -g FDE_AP_SEALED_SECRET="$FDE_AP_CONFIG_DIR/sealed.tpm"
+
+    mkdir -p -m 755 "$FDE_AP_CONFIG_DIR"
+}
+
+function tpm_create_authorized_policy {
+
+    secret_key="$1"
+    output_policy="$2"
+    public_key="$3"
+
+    # Generate the private key if it does not exist
+    extra_opts=
+    if [ ! -f "$secret_key" ]; then
+	extra_opts="--rsa-generate-key"
+    fi
+
+    pcr-oracle $extra_opts \
+        --private-key "$secret_key" \
+        --authorized-policy $output_policy \
+	--algorithm $FDE_SEAL_PCR_BANK \
+        create-authorized-policy $FDE_SEAL_PCR_LIST
+    if [ $? -ne 0 ]; then
+	return $?
+    fi
+
+    # Store the public key in a format suitable for feeding it to the TPM
+    if [ -n "$public_key" ]; then
+	pcr-oracle \
+		--private-key "$secret_key" \
+		--public-key "$public_key" \
+		store-public-key
+	if [ $? -ne 0 ]; then
+	    return $?
+	fi
+    fi
+}
+
+function tpm_authorize {
+
+    private_key_file="$1"
+    signed_policy_file="$2"
+
+    pcr-oracle \
+		--algorithm "$FDE_SEAL_PCR_BANK" \
+                --private-key "$private_key_file" \
+                --from eventlog \
+                --output "$signed_policy_file" \
+                sign "$FDE_SEAL_PCR_LIST"
+}

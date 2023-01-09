@@ -1,0 +1,19 @@
+
+policy_name="$FDE_AUTHORIZED_POLICY"
+if [ -z "$policy_name" ]; then
+    policy_name="$FDE_DEFAULT_AUTHORIZED_POLICY"
+fi
+
+
+##################################################################
+# Create the policy. If the private key does not exist yet,
+# pcr-oracle will generate a suitable key.
+# We also store a copy of the public key in a TPMv2 format so that
+# boot loaders do need a full PEM/ASN.1 for that.
+tpm_set_authorized_policy_paths "$policy_name"
+tpm_create_authorized_policy $FDE_AP_SECRET_KEY $FDE_AP_AUTHPOLICY $FDE_AP_PUBLIC_KEY
+
+if [ "$FDE_AUTHORIZED_POLICY" != "$policy_name" ]; then
+    sysconfig_set_variable /etc/sysconfig/fde-tools \
+		FDE_AUTHORIZED_POLICY "$policy_name"
+fi

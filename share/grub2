@@ -111,6 +111,9 @@ function grub_update_early_config {
     sealed_key_file="$1"
     sealed_pcr_bank="$2"
     sealed_pcr_list="$3"
+    auth_policy_file="$4"
+    public_key_file="$5"
+    signature_file="$6"
 
     grub_set_control GRUB_ENABLE_CRYPTODISK "y"
     grub_set_control GRUB_TPM2_SEALED_KEY "$sealed_key_file"
@@ -120,12 +123,59 @@ function grub_update_early_config {
 	grub_set_control GRUB_TPM2_PCR_LIST "$sealed_pcr_list"
     fi
 
+    # These are empty when using a PCR policy directly
+    grub_set_control GRUB_TPM_AUTHORIZED_POLICY "$auth_policy_file"
+    grub_set_control GRUB_TPM_PUBLIC_KEY "$public_key_file"
+    grub_set_control GRUB_TPM_SIGNATURE "$signature_file"
+
     extra_opts=
     if [ "$(ls /boot/efi/EFI)" = "BOOT" ]; then
 	extra_opts="--removable"
     fi
 
     shim-install --no-grub-install $extra_opts
+}
+
+function grub_enable_fde_authorized_policy {
+
+    sealed_key_file="$1"
+    auth_policy_file="$2"
+    public_key_file="$3"
+
+    grub_efi_dir=$(uefi_get_current_efidir)
+    if [ -z "$grub_efi_dir" ]; then
+	return 1
+    fi
+
+    # Copy the files to the ESP
+    cp "$sealed_key_file" "$grub_efi_dir/sealed.key"
+    cp "$auth_policy_file" "$grub_efi_dir/authpolicy.tpm"
+    cp "$public_key_file" "$grub_efi_dir/pubkey.tpm"
+
+    # Set up grub.cfg
+    grub_update_early_config sealed.key "$FDE_SEAL_PCR_BANK" "$FDE_SEAL_PCR_LIST" \
+			authpolicy.tpm pubkey.tpm signature.tpm
+}
+
+function grub_authorize_pcr_policy {
+
+    private_key_file="$1"
+
+    grub_efi_dir=$(uefi_get_current_efidir)
+    if [ -z "$grub_efi_dir" ]; then
+	return 1
+    fi
+
+    # Right now, we support only a single authorization. Down the road,
+    # we should probably create sub-directories (using a hash of the
+    # PCR policy as name) and store the signature inside that subdir.
+    # Along with a record of which grub/shim version this applies to,
+    # so that we can purge them later on.
+
+    # The base name of the signed policy file must match what we
+    # we configured in our call to grub_update_early_config above.
+    signed_policy_file="$grub_efi_dir/signature.tpm"
+    tpm_authorize "$private_key_file" "$signed_policy_file"
 }
 
 function grub_enable_fde_pcr_policy {

@@ -1,0 +1,14 @@
+
+fde_identify_fs_root fsdev
+
+luks_dev=$(luks_get_volume_for_fsdev "$fsdev")
+if [ -z "$luks_dev" ]; then
+    display_errorbox "Cannot find the underlying partition for $fsdev"
+    exit 1
+fi
+
+if [ -z "$FDE_AUTHORIZED_POLICY" ]; then
+    display_errorbox "Cannot authorize PCR policy, no authorized policy defined"
+    exit 1
+fi
+

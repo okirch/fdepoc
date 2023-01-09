@@ -7,9 +7,34 @@ if [ -z "$luks_dev" ]; then
     exit 1
 fi
 
+fde_trace "Testing TPM seal/unseal"
 if ! tpm_test $FDE_KEY_SIZE_BYTES; then
     display_errorbox "TPM key sealing and unsealing does not seem to work"
     exit 1
+fi
+fde_trace "TPM seal/unseal works"
+
+if [ -n "$FDE_AUTHORIZED_POLICY" ]; then
+    tpm_set_authorized_policy_paths "$FDE_AUTHORIZED_POLICY"
+
+    # The exact sequence of commands is
+    #   fdectl init-authorized-policy
+    #   fdectl add-secondary-key
+    #   fdectl tpm-enable
+    #          ^---- we are here
+    #   fdectl tpm-authorize
+    if [ ! -f "$FDE_AP_SEALED_SECRET" ]; then
+	display_errorbox "Cannot initialize TPM based boot with authorized policy - no sealed key found"
+	exit 1
+    fi
+
+    # Copy authorized policy and other constant files to the ESP, and
+    # tell the boot loader to use these.
+    # Eventually, we will bless a specfic configuration by creating a PCR policy
+    # and signing it with our RSA key.
+    grub_enable_fde_authorized_policy "$FDE_AP_SEALED_SECRET" \
+		"$FDE_AP_AUTHPOLICY" "$FDE_AP_PUBLIC_KEY"
+    exit $?
 fi
 
 if [ -n "$opt_keyfile" ]; then
