@@ -16,10 +16,14 @@ fi
 # there are. If the header contains more than a single key (which would be the
 # recovery password), maybe we should refuse to add another key.
 
-request_password "Please enter LUKS recovery password"
-if [ -z "$result_password" ]; then
-    display_errorbox "Unable to obtain recovery password; aborting."
-    exit 1
+if [ -n "$opt_password" ]; then
+    result_password="$opt_password"
+else
+    request_password "Please enter LUKS recovery password"
+    if [ -z "$result_password" ]; then
+	display_errorbox "Unable to obtain recovery password; aborting."
+	exit 1
+    fi
 fi
 
 luks_keyfile=$(luks_write_password pass "${result_password}")
