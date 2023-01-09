@@ -130,7 +130,7 @@ function grub_update_early_config {
     shim-install --no-grub-install $extra_opts
 }
 
-function grub_enable_fde_with_tpm {
+function grub_enable_fde_pcr_policy {
 
     luks_keyfile="$1"
 

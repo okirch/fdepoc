@@ -45,7 +45,7 @@ function fde_protect_tpm {
 
     luks_set_random_key "${luks_dev}" "${luks_keyfile}"
 
-    grub_enable_fde_with_tpm "${luks_keyfile}"
+    grub_enable_fde_pcr_policy "${luks_keyfile}"
 
     return $?
 }

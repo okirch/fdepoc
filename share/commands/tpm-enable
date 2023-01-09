@@ -48,7 +48,7 @@ else
     fi
 fi
 
-if ! grub_enable_fde_with_tpm "${luks_new_keyfile}"; then
+if ! grub_enable_fde_pcr_policy "${luks_new_keyfile}"; then
     display_errorbox "Failed to protect encrypted volume with TPM"
     rm -f "$luks_keyfile"
     exit 1
