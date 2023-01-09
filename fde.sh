@@ -5,7 +5,6 @@
 . $SHAREDIR/luks
 
 opt_bootloader=grub2
-opt_rootdir="/"
 opt_uefi_bootdir=""
 opt_device=""
 opt_ui=shell
@@ -26,8 +25,6 @@ Usage: fde [global-options] command [cmd-options]
 Global options:
   --help
 	Display this message
-  --root-dir
-	Specify the root directory of the installed system [/].
   --device
 	Specify the partition to operate on. Can be a device
 	name or a mount point. Defaults to the current root
@@ -71,7 +68,7 @@ function fde_identify_fs_root {
     var_name=$1
 
     if [ -z "$opt_device" ]; then
-	opt_device="$opt_rootdir"
+	opt_device="/"
     fi
 
     case $opt_device in
@@ -89,7 +86,7 @@ function fde_identify_fs_root {
     declare -g $var_name="$fsdev"
 }
 
-long_options="help,bootloader:,device:,use-dialog,keyfile:,uefi-boot-dir:,root-dir:,password:"
+long_options="help,bootloader:,device:,use-dialog,keyfile:,uefi-boot-dir:,password:"
 
 if ! getopt -Q -n fdectl -l "$long_options" -o h -- "$@"; then
     fde_usage
@@ -121,8 +118,6 @@ while [ $# -gt 0 ]; do
 	opt_password=$1; shift;;
     --uefi-boot-dir)
 	opt_uefi_bootdir=$1; shift;;
-    --root-dir)
-	opt_rootdir=$1; shift;;
     *)
     	fde_bad_option "Unsupported option $next";;
     esac
@@ -153,7 +148,7 @@ if [ -n "$opt_uefi_bootdir" ]; then
     uefi_set_loader "$opt_uefi_bootdir"
 fi
 
-. "$opt_rootdir/etc/sysconfig/fde-tools"
+. /etc/sysconfig/fde-tools
 . "$SHAREDIR/ui/$opt_ui"
 . "$SHAREDIR/util"
 . "$SHAREDIR/tpm"
