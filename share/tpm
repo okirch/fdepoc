@@ -181,7 +181,7 @@ function tpm_test {
     tpm2_pcrread -o $pcr_values_file $FDE_SEAL_PCR_BANK:$FDE_SEAL_PCR_LIST >&2
 
     secret=$(fde_make_tempfile secret)
-    dd if=/dev/zero of=$secret bs=$key_size count=1 >&2
+    dd if=/dev/zero of=$secret bs=$key_size count=1 status=none >&2
 
     sealed_secret=$(fde_make_tempfile sealed.key)
     tpm_seal_key_verify --verify $pcr_values_file $secret $sealed_secret >&2

@@ -298,7 +298,7 @@ function luks_add_random_key {
     local luks_keyfile="$2"
     local new_keyfile="$3"
 
-    dd if=/dev/random bs=1 count=$FDE_KEY_SIZE_BYTES of=$new_keyfile
+    dd if=/dev/random bs=1 count=$FDE_KEY_SIZE_BYTES of=$new_keyfile status=none
     cryptsetup --key-file "${luks_keyfile}" luksAddKey --pbkdf "$FDE_LUKS_PBKDF" $luks_dev $new_keyfile
 }
 
@@ -308,7 +308,7 @@ function luks_set_random_key {
     local luks_keyfile="$2"
 
     new_keyfile=/dev/shm/new.keyfile
-    dd if=/dev/random bs=1 count=$FDE_KEY_SIZE_BYTES of=$new_keyfile
+    dd if=/dev/random bs=1 count=$FDE_KEY_SIZE_BYTES of=$new_keyfile status=none
 
     # Note: we try to reduce the cost of PBKDF to (almost) nothing.
     # There's no need in slowing down this operation for a
