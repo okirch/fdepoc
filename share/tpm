@@ -17,10 +17,18 @@
 #
 #   Written by Olaf Kirch <okir@suse.com>
 
+FDE_DEFAULT_AUTHORIZED_POLICY="authorized-policy"
+
 ##################################################################
 # Check whether a TPM is present and working reasonably well
 ##################################################################
 function tpm_present_and_working {
+
+    # Try to fail more gracefully when there's no TPM (esp on platforms
+    # that do not support TPM devices at all).
+    if [ ! -d /sys/class/tpm ]; then
+	fde_trace "There do not seem to be any TPM devices."
+    fi
 
     if ! tpm2_selftest -V -f; then
 	fde_trace "This system does not have a TPM2 chip. Full disk encryption with TPM protection not available"
