@@ -10,6 +10,7 @@ opt_uefi_bootdir=""
 opt_device=""
 opt_ui=shell
 opt_keyfile=""
+opt_password=""
 
 ##################################################################
 # Display a usage message.
@@ -39,6 +40,9 @@ Global options:
 	Use the dialog(1) utility to interact with the user.
   --keyfile
 	Specify the path to a LUKS key for use with tpm-enable.
+  --password
+	Specify the LUKS recovery password. Should be used by the
+	installer only.
 
 Commands:
   help - display this message
@@ -85,7 +89,7 @@ function fde_identify_fs_root {
     declare -g $var_name="$fsdev"
 }
 
-long_options="help,bootloader:,device:,use-dialog,keyfile:,uefi-boot-dir:,root-dir:"
+long_options="help,bootloader:,device:,use-dialog,keyfile:,uefi-boot-dir:,root-dir:,password:"
 
 if ! getopt -Q -n fdectl -l "$long_options" -o h -- "$@"; then
     fde_usage
@@ -113,6 +117,8 @@ while [ $# -gt 0 ]; do
     	opt_ui=dialog;;
     --keyfile)
 	opt_keyfile=$1; shift;;
+    --password)
+	opt_password=$1; shift;;
     --uefi-boot-dir)
 	opt_uefi_bootdir=$1; shift;;
     --root-dir)
