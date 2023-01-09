@@ -156,5 +156,6 @@ fi
 . "$opt_rootdir/etc/sysconfig/fde-tools"
 . "$SHAREDIR/ui/$opt_ui"
 . "$SHAREDIR/util"
+. "$SHAREDIR/tpm"
 . "$SHAREDIR/$opt_bootloader"
 . "$SHAREDIR/commands/$command"

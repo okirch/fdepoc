@@ -1,4 +1,3 @@
-. $SHAREDIR/tpm
 
 fde_identify_fs_root fsdev
 

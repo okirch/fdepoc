@@ -17,8 +17,6 @@
 #
 #   Written by Olaf Kirch <okir@suse.com>
 
-. /etc/sysconfig/fde-tools
-
 ##################################################################
 # Edit a variable in /etc/default/grub
 ##################################################################
