@@ -12,3 +12,5 @@ if [ -z "$FDE_AUTHORIZED_POLICY" ]; then
     exit 1
 fi
 
+tpm_set_authorized_policy_paths "$FDE_AUTHORIZED_POLICY"
+grub_authorize_pcr_policy "$FDE_AP_SECRET_KEY" 
