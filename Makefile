@@ -3,6 +3,7 @@ PKGNAME		= fde-tools-0.6.2
 CCOPT		= -O0 -g
 SBINDIR		= /sbin
 SYSCONFIGDIR	= /etc/sysconfig
+FDE_CONFIG_DIR	= /etc/fde
 FDE_SHARE_DIR	= /usr/share/fde
 FIRSTBOOTDIR	= /usr/share/jeos-firstboot
 CFLAGS		= -Wall $(CCOPT)
@@ -44,6 +45,7 @@ install::
 	done
 	@mkdir -p $(DESTDIR)$(SBINDIR)
 	@install -m 555 -v fde.sh $(DESTDIR)$(SBINDIR)/fdectl
+	@install -m 755 -v -d $(DESTDIR)$(FDE_CONFIG_DIR)
 
 clean:
 	rm -f $(TOOLS)
