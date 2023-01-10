@@ -148,6 +148,8 @@ if [ -n "$opt_uefi_bootdir" ]; then
     uefi_set_loader "$opt_uefi_bootdir"
 fi
 
+FDE_CONFIG_DIR=/etc/fde
+
 . /etc/sysconfig/fde-tools
 . "$SHAREDIR/ui/$opt_ui"
 . "$SHAREDIR/util"
