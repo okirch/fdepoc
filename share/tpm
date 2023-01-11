@@ -1,5 +1,5 @@
 #
-#   Copyright (C) 2022 SUSE LLC
+#   Copyright (C) 2022, 2023 SUSE LLC
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -224,8 +224,8 @@ function tpm_seal_secret {
     pcr_values_file=$(fde_make_tempfile pcr-set)
     tpm_build_pcrset "${efi_grub_dir}/grub.cfg" >"${pcr_values_file}"
 
-    # Since we're now sealing the key against a predicted value of PCR9 (rather
-    # than the actual value), we can no longer verify that the key can be
+    # Since we're now sealing the key against a predicted set of of PCR values
+    # (rather than the actual values), we can no longer verify that the key can be
     # unsealed.
     if ! tpm_seal_key_verify $pcr_values_file $secret $sealed_secret >&2; then
 	rm -f $sealed_secret
