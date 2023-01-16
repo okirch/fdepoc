@@ -39,10 +39,8 @@ if [ -n "$current_password" ]; then
 fi
 
 ##################################################################
-# Choose a quick-unlock password.
-# For the time being, just use a hard-coded password. If we wanted
-# to be more fancy, autogenerate a random password.
-insecure_password="funkypass"
+# Generate a random firstboot password.
+insecure_password="$(fde_random_password)"
 
 # In order to install the new password, we need to prove to luks that
 # we're worthy. Either present a keyfile or the recovery passphrase.

@@ -71,3 +71,11 @@ function sysconfig_set_variable {
     fi
 }
 
+##################################################################
+# Create a random password; 16 hex digits, spaced in groups of 4
+##################################################################
+function fde_random_password {
+
+    dd if=/dev/urandom bs=1 count=16 status=none | sha1sum | cut -c 1-16 |
+		sed 's:\(....\)\(....\)\(....\)\(....\):\1-\2-\3-\4:'
+}
