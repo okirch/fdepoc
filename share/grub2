@@ -17,6 +17,14 @@
 #
 #   Written by Olaf Kirch <okir@suse.com>
 
+# Define aliases for the grub_* functions we export to other
+# parts of fdectl
+alias bootloader_enable_fde_without_tpm=grub_enable_fde_without_tpm
+alias bootloader_enable_fde_pcr_policy=grub_enable_fde_pcr_policy
+alias bootloader_enable_fde_authorized_policy=grub_enable_fde_authorized_policy
+alias bootloader_authorize_pcr_policy=grub_authorize_pcr_policy
+alias bootloader_get_fde_password=grub_get_fde_password
+
 ##################################################################
 # Edit a variable in /etc/default/grub
 ##################################################################

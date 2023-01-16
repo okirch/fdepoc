@@ -50,7 +50,7 @@ if [ -n "$FDE_AUTHORIZED_POLICY" ]; then
     # tell the boot loader to use these.
     # Eventually, we will bless a specfic configuration by creating a PCR policy
     # and signing it with our RSA key.
-    grub_enable_fde_authorized_policy "$FDE_AP_SEALED_SECRET" \
+    bootloader_enable_fde_authorized_policy "$FDE_AP_SEALED_SECRET" \
 		"$FDE_AP_AUTHPOLICY" "$FDE_AP_PUBLIC_KEY"
     exit $?
 fi
@@ -90,7 +90,7 @@ else
     fi
 fi
 
-if ! grub_enable_fde_pcr_policy "${luks_new_keyfile}"; then
+if ! bootloader_enable_fde_pcr_policy "${luks_new_keyfile}"; then
     display_errorbox "Failed to protect encrypted volume with TPM"
     rm -f "$luks_keyfile"
     exit 1

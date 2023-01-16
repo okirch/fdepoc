@@ -45,7 +45,7 @@ function fde_protect_tpm {
 
     luks_set_random_key "${luks_dev}" "${luks_keyfile}"
 
-    grub_enable_fde_pcr_policy "${luks_keyfile}"
+    bootloader_enable_fde_pcr_policy "${luks_keyfile}"
 
     return $?
 }
@@ -54,7 +54,7 @@ function fde_protect_notpm {
 
     local luks_dev=$1
 
-    grub_enable_fde_without_tpm
+    bootloader_enable_fde_without_tpm
 
     return $?
 }
@@ -283,7 +283,7 @@ function fde_systemd_firstboot {
     exec 2>/var/log/fde-firstboot.log
 
     # Get the password that was used during installation.
-    fde_root_passphrase=$(grub_get_fde_password)
+    fde_root_passphrase=$(bootloader_get_fde_password)
     if [ -z "$fde_root_passphrase" ]; then
 	display_errorbox "Cannot find the initial FDE password for the root file system"
 	return 1
