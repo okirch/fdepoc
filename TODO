@@ -1,0 +1,13 @@
+
+To be done:
+ - add manpage
+ - add-secondary-key: make sure we really only have two keys
+ - tpm-disable: implement
+ - enable/disable-doormat: needs testing
+
+What we want
+ - kiwi options to create a LUKS volume w null cipher and empty password
+ - do we really need to randomize the LUKS volume at image build time?
+   resize and rekey happen waaay later and besides it makes the image
+   hard to compress.
+ - re-encrypt first, then resize
