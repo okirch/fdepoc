@@ -18,6 +18,7 @@ This is fairly trivial:
 
 This will return an exit status of 0 (success) or 1 (absent).
 
+
 ## Leaving the key under the doormat
 
 When the user selects TPM protection during installation, we cannot
@@ -37,7 +38,7 @@ achieve this, we need install a temporary, alternative password and
 leave that in cleartext in the boot loader configuration (for grub,
 this would be the grub.cfg file on the EFI System Partition).
 
-In order to install such as "quick-unlock password", use the ``dormat``
+In order to install such as "firstboot password", use the ``dormat``
 command:
 
 	# fdectl enable-doormat
@@ -52,7 +53,7 @@ also use either the ``--keyfile`` or the ``--password`` option to
 specify a LUKS keyfile, or the recovery passphrase, respectively.
 
 Normally, the first boot into a freshly installed system will dispose
-of any quick-unlock password configured by the installer. If you want
+of any firstboot password configured by the installer. If you want
 to remove the password explicitly, you can use
 
 	# fdectl disable-doormat
