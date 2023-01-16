@@ -1,0 +1,97 @@
+#
+#   Copyright (C) 2022, 2023 SUSE LLC
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#
+#   Written by Olaf Kirch <okir@suse.com>
+
+##################################################################
+# Define aliases for the systemd_* functions we export to other
+# parts of fdectl
+#
+# Right now, all of these functions are merely stubs that need
+# to be implemented.
+##################################################################
+alias bootloader_enable_fde_without_tpm=systemd_enable_fde_without_tpm
+alias bootloader_enable_fde_pcr_policy=systemd_enable_fde_pcr_policy
+alias bootloader_enable_fde_authorized_policy=systemd_enable_fde_authorized_policy
+alias bootloader_authorize_pcr_policy=systemd_authorize_pcr_policy
+alias bootloader_get_fde_password=systemd_get_fde_password
+
+
+
+function not_implemented {
+
+    display_errorbox "systemd-boot support not yet implemented"
+}
+
+function systemd_get_fde_password {
+
+    not_implemented
+    return 1
+}
+
+##################################################################
+# This function implements the boot loader specific part of
+# tpm-enable when using an authorized policy.
+# It is expected to install the sealed authorized policy itself,
+# the RSA public key and the sealed LUKS key in a location where
+# the boot loader can find it, and configure the boot loader
+# to use them.
+##################################################################
+function systemd_enable_fde_authorized_policy {
+
+    sealed_key_file="$1"
+    auth_policy_file="$2"
+    public_key_file="$3"
+
+    not_implemented
+}
+
+##################################################################
+# This function implements the boot loader specific part of
+# tpm-authorize when using an authorized policy.
+# It calls tpm_authorize with the appropriate path where to
+# store the signed PCR policy.
+##################################################################
+function systemd_authorize_pcr_policy {
+
+    private_key_file="$1"
+
+    not_implemented
+}
+
+##################################################################
+# This function implements the boot loader specific part of
+# tpm-enable when using a regular PCR policy.
+# It needs to choose a proper path for storing the the sealed
+# LUKS key, and call tpm_seal_secret to seal the LUKS key against
+# the PCR policy, and store the sealed key at the chosen location.
+##################################################################
+function systemd_enable_fde_pcr_policy {
+
+    luks_keyfile="$1"
+
+    not_implemented
+}
+
+##################################################################
+# This function implements the boot loader specific part of
+# tpm-disable.
+##################################################################
+function systemd_enable_fde_without_tpm {
+
+    not_implemented
+}
