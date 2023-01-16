@@ -20,7 +20,7 @@ This will return an exit status of 0 (success) or 1 (absent).
 
 ## Leaving the key under the doormat
 
-When the user selects TPM protection during installatioin, we cannot
+When the user selects TPM protection during installation, we cannot
 seal LUKS keys against the TPM immediately. That is because the
 boot process the system is going through to bring up the installer
 is normally vastly different from what the firmware will do when booting
@@ -37,10 +37,26 @@ achieve this, we need install a temporary, alternative password and
 leave that in cleartext in the boot loader configuration (for grub,
 this would be the grub.cfg file on the EFI System Partition).
 
-This is not implemented yet, but it will be coming soon. The
-interface will probably look like this:
+In order to install such as "quick-unlock password", use the ``dormat``
+command:
 
-	# fdectl doormat --password "3l1te_pass"
+	# fdectl enable-doormat
+
+This will ask for the recovery password, and create an additional
+slot in the LUKS header that is protected by a additional, insecure
+password, and will configure the bootloader to use that to unlock
+the system partition on next boot.
+
+If you do not want to be prompted for the recovery password, you can
+also use either the ``--keyfile`` or the ``--password`` option to
+specify a LUKS keyfile, or the recovery passphrase, respectively.
+
+Normally, the first boot into a freshly installed system will dispose
+of any quick-unlock password configured by the installer. If you want
+to remove the password explicitly, you can use
+
+	# fdectl disable-doormat
+
 
 ## Installation using PCR Policies
 
@@ -115,7 +131,7 @@ authorized policy:
 	# fdectl tpm-enable
 	# fdectl tpm-authorize
 
-As before, ``tpm-enable`` will configure the boot loader to use
+As before, ``tpm-enable`` will configure the boot loader to
 unlock the LUKS partition by unsealing the secret key.
 
 However, there is a second step required, which is to actually

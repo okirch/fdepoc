@@ -274,16 +274,20 @@ function luks_add_password {
 
     local luks_dev=$1
     local luks_keyfile="$2"
+    local luks_new_password="$3"
 
-    request_new_password "Please enter new LUKS recovery password"
-    if [ -z "$result_password" ]; then
-        echo "Unable to obtain new recovery password" >&2
-	return 1
+    if [ -z "$luks_new_password" ]; then
+	request_new_password "Please enter new LUKS recovery password"
+	if [ -z "$result_password" ]; then
+	    echo "Unable to obtain new recovery password" >&2
+	    return 1
+	fi
+	luks_new_password="${result_password}"
     fi
 
     display_infobox "Updating LUKS recovery password"
 
-    new_keyfile=$(luks_write_password newpass "${result_password}")
+    new_keyfile=$(luks_write_password newpass "${luks_new_password}")
     if ! cryptsetup --key-file "${luks_keyfile}" luksAddKey --pbkdf "$FDE_LUKS_PBKDF" "${luks_dev}" ${new_keyfile}; then
 	fde_trace "Warning: luksAddKey indicates failure"
 	return 1
