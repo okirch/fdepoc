@@ -191,7 +191,7 @@ function grub_enable_fde_pcr_policy {
     grub_update_early_config sealed.key "$FDE_SEAL_PCR_BANK" "$FDE_SEAL_PCR_LIST"
 
     # ... then seal the key against a PCR9 value that covers grub.cfg
-    tpm_seal_secret "${luks_keyfile}" "${grub_efi_dir}" "$grub_efi_dir/sealed.key"
+    tpm_seal_secret "${luks_keyfile}" "$grub_efi_dir/sealed.key"
 }
 
 function grub_enable_fde_without_tpm {

@@ -55,8 +55,6 @@ function tpm_present_and_working {
 ##################################################################
 function tpm_build_pcrset {
 
-    grub_cfg="$1"
-
     echo "Building PCR set for $FDE_SEAL_PCR_LIST" >&2
     pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
 			--format binary \
@@ -202,9 +200,8 @@ function tpm_test {
 function tpm_seal_secret {
 
     secret="$1"
-    efi_grub_dir="$2"
-    sealed_secret="$3"
-    authorized_policy="$4"
+    sealed_secret="$2"
+    authorized_policy="$3"
 
     # If we are expected to use an authorized policy, seal the secret
     # against that, using pcr-oracle rather than the tpm2 tools
@@ -217,12 +214,10 @@ function tpm_seal_secret {
     fi
 
     # Construct a set of PCR values against which to seal the key.
-    # Most of these come straight from the PCR snapshot taken by tpm_record_pcrs
-    # in grub.cfg. The only exception is PCR9, which covers the files that grub
-    # reads during early boot (ie grub.cfg). And that grub.cfg file is
-    # going to be different from the one that got used when booting the installer.
+    # This uses pcr-oracle to predict the values the PCRs will have
+    # during the next boot.
     pcr_values_file=$(fde_make_tempfile pcr-set)
-    tpm_build_pcrset "${efi_grub_dir}/grub.cfg" >"${pcr_values_file}"
+    tpm_build_pcrset >"${pcr_values_file}"
 
     # Since we're now sealing the key against a predicted set of of PCR values
     # (rather than the actual values), we can no longer verify that the key can be
