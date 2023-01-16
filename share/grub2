@@ -67,72 +67,9 @@ function grub_get_fde_password {
 }
 
 ##################################################################
-# Change the cryptomount command in early boot grub.cfg
-# This turns something like this:
-#	cryptomount -u XX-YY-ZZ -p defpass
-# into something like this:
-#       tpm2_key_protector_init bla bla bla
-#       if ! cryptomount -u XX-YY-ZZ -k tpm2; then
-#		cryptomount -u XX-YY-ZZ
-#	fi
-#	tpm2_key_protector_clear
-##################################################################
-function grub_frob_cryptomount_command {
-
-    orig_cmd="$*"
-
-    crypto_cmd=""
-    orig_protector=""
-
-    while [ $# -gt 0 ]; do
-	case $1 in
-	-u|--uuid)
-		crypto_cmd+=" -u $2"
-		shift 2;;
-	-p|--password)
-		shift 2;;
-	-k|--protector)
-		orig_protector="$1 $2"
-		shift 2;;
-	*)	crypto_cmd+=" $1"
-		shift;;
-	esac
-    done
-
-    cat <<-EOF
-
-tpm2_key_protector_init -b $FDE_SEAL_PCR_BANK -p $FDE_SEAL_PCR_LIST -k \$prefix/$sealed_key_file
-if ! $crypto_cmd -k tpm2; then
-    $crypto_cmd $orig_protector
-fi
-tpm2_key_protector_clear
-
-EOF
-}
-
-##################################################################
 # Update the grub.cfg residing on the EFI partition to properly
 # unseal the TPM protected LUKS partition
 ##################################################################
-function grub_update_early_config_old {
-
-    grub_dir="$1"
-    sealed_key_file="$2"
-
-    grub_cfg_file="${grub_dir}/grub.cfg"
-
-    cat $grub_cfg_file | while read line; do
-	case "$line" in
-	*cryptomount*)
-	    grub_frob_cryptomount_command $line;;
-	*)
-	    echo "$line";;
-	esac
-    done >$grub_cfg_file.new
-
-    mv $grub_cfg_file.new $grub_cfg_file
-}
-
 function grub_update_early_config {
 
     sealed_key_file="$1"
