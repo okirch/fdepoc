@@ -53,7 +53,7 @@ function tpm_present_and_working {
 # NOTE: This needs to change in order to accomodate things like
 # systemd-boot.
 ##################################################################
-function tpm_build_pcrset {
+function tpm_build_pcrset_old {
 
     # FIXME: this needs work for boot loaders other than grub
     # Maybe we should introduce a bootloader_stop_event() function.
@@ -90,7 +90,7 @@ function tpm_policy_options {
     fi
 }
 
-function tpm_seal_key {
+function tpm_seal_key_old {
 
     pcr_values_file=$1
     secret=$2
@@ -113,7 +113,7 @@ function tpm_seal_key {
     return $retval
 }
 
-function tpm_unseal_key {
+function tpm_unseal_key_old {
 
     pcr_values_file=$1
     pubkey=$2
@@ -140,67 +140,67 @@ function tpm_unseal_key {
     fde_clean_tempdir
 }
 
+function tpm_seal_key {
 
-function tpm_seal_key_verify {
+    secret=$1
+    sealed_secret=$2
 
-    opt_verify=false
-    if [ "$1" == "--verify" ]; then
-	opt_verify=true
-	shift
-    fi
+    # FIXME: this needs work for boot loaders other than grub
+    # Maybe we should introduce a bootloader_stop_event() function.
+    stop_event="grub-command=cryptomount"
 
-    pcr_values_file=$1
-    secret=$2
-    sealed_key_file=$3
-
-    pubkey=$(fde_make_tempfile sealed-key.pub)
-    privkey=$(fde_make_tempfile sealed-key.priv)
-
-    if ! tpm_seal_key "$pcr_values_file" $secret $pubkey $privkey; then
-	return 1
-    fi
-
-    # The sealed key that grub expects is just the concatenation of
-    # TPM2B_PUBLIC and a TPM2B containing the private key portion
-    # FIXME: this may not work with systemd-boot
-    cat $pubkey $privkey > $sealed_key_file
-
-    if $opt_verify; then
-	unsealed_file=$(fde_make_tempfile unsealed.key)
-	tpm_unseal_key "$pcr_values_file" $pubkey $privkey $unsealed_file
-
-	if ! cmp --quiet $secret $unsealed_file; then
-	    echo "Problem: TPM seal/unseal did not work!" >&2
-	    retval=1
-	else
-	    echo "Splendid, we were able to unseal the TPM protected key" >&2
-	    retval=0
-	fi
-	rm -f "$unsealed_file"
-    fi
-
-    rm -f $pubkey $privkey
-    return $retval
+    echo "Sealing secret against PCR policy covering $FDE_SEAL_PCR_LIST" >&2
+    pcr-oracle --input "$secret" --output "$sealed_secret" \
+			--algorithm "$FDE_SEAL_PCR_BANK" \
+			--from eventlog \
+			--stop-event "$stop_event" \
+			--before \
+			seal-secret \
+			"$FDE_SEAL_PCR_LIST"
 }
+
 
 
 function tpm_test {
 
     key_size=$1
 
-    pcr_values_file=$(fde_make_tempfile pcr-values)
-    tpm2_pcrread -o $pcr_values_file $FDE_SEAL_PCR_BANK:$FDE_SEAL_PCR_LIST >&2
-
     secret=$(fde_make_tempfile secret)
     dd if=/dev/zero of=$secret bs=$key_size count=1 status=none >&2
 
-    sealed_secret=$(fde_make_tempfile sealed.key)
-    tpm_seal_key_verify --verify $pcr_values_file $secret $sealed_secret >&2
-    retval=$?
+    secret=$(fde_make_tempfile secret)
+    sealed_secret=$(fde_make_tempfile sealed_secret)
+    recovered=$(fde_make_tempfile recovered)
+    result=1
+
+    dd if=/dev/zero of=$secret bs=$key_size count=1 status=none >&2
+
+    fde_trace "Testing TPM seal/unseal"
+    pcr-oracle \
+	--algorithm "$FDE_SEAL_PCR_BANK" \
+        --input "$secret" \
+        --output "$sealed_secret" \
+        --from current \
+        seal-secret "$FDE_SEAL_PCR_LIST"
+
+    pcr-oracle \
+	--algorithm "$FDE_SEAL_PCR_BANK" \
+        --input "$sealed_secret" \
+        --output "$recovered" \
+        unseal-secret "$FDE_SEAL_PCR_LIST"
+
+    if ! cmp "$secret" "$recovered"; then
+        fde_trace "BAD: Unable to recover original secret"
+        fde_trace "TPM seal/unseal does not seem to work; please take me to a parallel universe"
+    else
+        fde_trace "TPM seal/unseal works"
+	result=0
+    fi
 
     fde_clean_tempdir
-    return $retval
+    return $result
 }
+
 
 function tpm_seal_secret {
 
@@ -218,24 +218,18 @@ function tpm_seal_secret {
 	return $?
     fi
 
-    # Construct a set of PCR values against which to seal the key.
-    # This uses pcr-oracle to predict the values the PCRs will have
-    # during the next boot.
-    pcr_values_file=$(fde_make_tempfile pcr-set)
-    tpm_build_pcrset >"${pcr_values_file}"
-
-    # Since we're now sealing the key against a predicted set of of PCR values
-    # (rather than the actual values), we can no longer verify that the key can be
-    # unsealed.
-    if ! tpm_seal_key_verify $pcr_values_file $secret $sealed_secret >&2; then
+    # The sealed key that grub expects is just the concatenation of
+    # TPM2B_PUBLIC and a TPM2B containing the private key portion
+    # This may not work with systemd-boot. If systemd-boot requires
+    # public/private in separate files, we should probably add
+    # a subcommand "split-secret" to pcr-oracle.
+    if ! tpm_seal_key $secret $sealed_secret >&2; then
 	rm -f $sealed_secret
 	# FIXME: this should be an error dialog.
 	# Let's hope the user has set a recovery password
 	echo "Failed to seal LUKS encryption key" >&2
 	return 1
     fi
-
-    rm -f "${pcr_values_file}"
 }
 
 ##################################################################
