@@ -38,108 +38,6 @@ function tpm_present_and_working {
     return 0
 }
 
-
-##################################################################
-# Predict the set of PCR values that the TPM chip will hold at
-# the time we need to unseal the key.
-#
-# This function writes the binary PCR values to stdout. This is
-# the same format that tpm2_pcrread produces, and which tpm2_load
-# expects as parameter to the --pcr option.
-#
-# If tracing is on, print the computed values to stderr as well
-# (in human readable format) so that they wind up in the log file.
-#
-# NOTE: This needs to change in order to accomodate things like
-# systemd-boot.
-##################################################################
-function tpm_build_pcrset_old {
-
-    # FIXME: this needs work for boot loaders other than grub
-    # Maybe we should introduce a bootloader_stop_event() function.
-    stop_event="grub-command=cryptomount"
-
-    echo "Building PCR set for $FDE_SEAL_PCR_LIST" >&2
-    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
-			--format binary \
-			--from eventlog \
-			--stop-event "$stop_event" \
-			--before \
-			"$FDE_SEAL_PCR_LIST"
-
-    if $FDE_TRACING; then
-	    # like above, except as human readable output, and
-	    # redirected to stderr (ie the tracing log)
-	    pcr-oracle --algorithm "$FDE_SEAL_PCR_BANK" \
-				--from eventlog \
-				--stop-event "$stop_event" \
-				--before \
-				"$FDE_SEAL_PCR_LIST" >&2
-    fi
-}
-
-function tpm_policy_options {
-
-    pcr_values_file=$1
-
-    pcr_list="$FDE_SEAL_PCR_BANK:$FDE_SEAL_PCR_LIST"
-    if [ -n "$pcr_values_file" -a -s "$pcr_values_file" ]; then
-	echo "--pcr-list $pcr_list --pcr $pcr_values_file"
-    else
-	echo "--pcr-list $pcr_list"
-    fi
-}
-
-function tpm_seal_key_old {
-
-    pcr_values_file=$1
-    secret=$2
-    pubkey=$3
-    privkey=$4
-
-    context=$(fde_make_tempfile primary.ctx)
-    session=$(fde_make_tempfile session.ctx)
-    policy=$(fde_make_tempfile policy.tpm)
-
-    policy_options=$(tpm_policy_options "$pcr_values_file")
-
-    tpm2_createprimary --quiet -c $context -a "$FDE_TPM2_SRK_ATTRS"
-    tpm2_startauthsession --session $session
-    tpm2_policypcr --session $session $policy_options --policy $policy
-    tpm2_create --quiet -C $context -u $pubkey -r $privkey -L $policy -i $secret
-    retval=$?
-    tpm2_flushcontext $session
-
-    return $retval
-}
-
-function tpm_unseal_key_old {
-
-    pcr_values_file=$1
-    pubkey=$2
-    privkey=$3
-    unsealed_key_file=$4
-
-    fde_make_tempdir
-    dir="$FDE_TEMP_DIR"
-
-    context=$dir/primary.ctx
-    session=$dir/session.ctx
-    policy=$dir/policy.tpm
-    key_context=$dir/key.ctx
-
-    policy_options=$(tpm_policy_options "$pcr_values_file")
-
-    tpm2_createprimary --quiet -c $context -a "$FDE_TPM2_SRK_ATTRS"
-    tpm2_startauthsession --policy-session -S $session
-    tpm2_policypcr --session $session $policy_options --policy $policy
-    tpm2_load -C $context -u $pubkey -r $privkey -c $key_context
-    tpm2_unseal -c $context -p session:$session -c $key_context -o $unsealed_key_file
-    tpm2_flushcontext $session
-
-    fde_clean_tempdir
-}
-
 function tpm_seal_key {
 
     secret=$1
@@ -158,8 +56,6 @@ function tpm_seal_key {
 			seal-secret \
 			"$FDE_SEAL_PCR_LIST"
 }
-
-
 
 function tpm_test {
 
