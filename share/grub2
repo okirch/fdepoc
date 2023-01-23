@@ -27,6 +27,7 @@ alias bootloader_enable_fde_authorized_policy=grub_enable_fde_authorized_policy
 alias bootloader_authorize_pcr_policy=grub_authorize_pcr_policy
 alias bootloader_set_fde_password=grub_set_fde_password
 alias bootloader_get_fde_password=grub_get_fde_password
+alias bootloader_commit_config=grub_commit_config
 
 ##################################################################
 # Edit a variable in /etc/default/grub
@@ -91,6 +92,11 @@ function grub_update_early_config {
     grub_set_control GRUB_TPM_AUTHORIZED_POLICY "$auth_policy_file"
     grub_set_control GRUB_TPM_PUBLIC_KEY "$public_key_file"
     grub_set_control GRUB_TPM_SIGNATURE "$signature_file"
+
+    grub_commit_config
+}
+
+function grub_commit_config {
 
     extra_opts=
     if [ "$(ls /boot/efi/EFI)" = "BOOT" ]; then
