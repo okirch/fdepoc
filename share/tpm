@@ -30,7 +30,7 @@ function tpm_present_and_working {
 	fde_trace "There do not seem to be any TPM devices."
     fi
 
-    if ! tpm2_selftest -V -f; then
+    if ! pcr-oracle self-test; then
 	fde_trace "This system does not have a TPM2 chip. Full disk encryption with TPM protection not available"
 	return 1
     fi
