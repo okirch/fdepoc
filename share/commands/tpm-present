@@ -17,5 +17,11 @@
 #
 #   Written by Olaf Kirch <okir@suse.com>
 
-tpm_present_and_working
-exit $?
+alias cmd_requires_luks_device=false
+alias cmd_perform=cmd_tpm_present
+
+function cmd_tpm_present {
+
+    tpm_present_and_working
+    return $?
+}

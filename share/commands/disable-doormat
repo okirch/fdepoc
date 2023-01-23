@@ -17,37 +17,36 @@
 #
 #   Written by Olaf Kirch <okir@suse.com>
 
+alias cmd_requires_luks_device=true
+alias cmd_perform=cmd_disable_doormat
 
-fde_identify_fs_root fsdev
+function cmd_disable_doormat {
 
-partition_dev=$(luks_get_volume_for_fsdev "$fsdev")
-if [ -z "$partition_dev" ]; then
-    display_errorbox "Cannot find the underlying partition for $fsdev"
-    exit 1
-fi
+    luks_dev="$1"
 
-##################################################################
-# Check if we have stashed a key under the doormat
-##################################################################
-insecure_password=$(bootloader_get_fde_password)
-if [ -z "$insecure_password" ]; then
-    display_infobox "No firstboot password configured"
-    exit 0
-fi
+    ##################################################################
+    # Check if we have stashed a key under the doormat
+    ##################################################################
+    insecure_password=$(bootloader_get_fde_password)
+    if [ -z "$insecure_password" ]; then
+	display_infobox "No firstboot password configured"
+	return 0
+    fi
 
-##################################################################
-# Nuke the LUKS header slot associated with this password
-##################################################################
-luks_keyfile=$(luks_write_password pass "${insecure_password}")
-if ! luks_drop_key "$partition_dev" "$luks_keyfile"; then
-    display_errorbox "Unable to disable firstboot password"
-    exit 1
-fi
+    ##################################################################
+    # Nuke the LUKS header slot associated with this password
+    ##################################################################
+    luks_keyfile=$(luks_write_password pass "${insecure_password}")
+    if ! luks_drop_key "$luks_dev" "$luks_keyfile"; then
+	display_errorbox "Unable to disable firstboot password"
+	return 1
+    fi
 
-##################################################################
-# And finally, wipe the password from the boot loader config files.
-##################################################################
-if ! bootloader_set_fde_password "$insecure_password"; then
-    display_errorbox "Failed to disable firstboot password in boot loader"
-    exit 1
-fi
+    ##################################################################
+    # And finally, wipe the password from the boot loader config files.
+    ##################################################################
+    if ! bootloader_set_fde_password "$insecure_password"; then
+	display_errorbox "Failed to disable firstboot password in boot loader"
+	return 1
+    fi
+}

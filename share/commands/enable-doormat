@@ -19,55 +19,55 @@
 
 # "firstboot password" sounds so much better than "backdoor"
 
-fde_identify_fs_root fsdev
+alias cmd_requires_luks_device=true
+alias cmd_perform=cmd_enable_doormat
 
-partition_dev=$(luks_get_volume_for_fsdev "$fsdev")
-if [ -z "$partition_dev" ]; then
-    display_errorbox "Cannot find the underlying partition for $fsdev"
-    exit 1
-fi
+function cmd_enable_doormat {
 
-##################################################################
-# Check whether we have already defined a firstboot password. If so,
-# refuse to do anything.
-# If we really wanted to be perfect, we could use luks_change_password
-# instead of luks_add_password in this case. But I'm lazy, not perfect.
-current_password=$(bootloader_get_fde_password)
-if [ -n "$current_password" ]; then
-    display_errorbox "You have already defined an firstboot password"
-    exit 1
-fi
+    partition_dev="$1"
 
-##################################################################
-# Generate a random firstboot password.
-insecure_password="$(fde_random_password)"
-
-# In order to install the new password, we need to prove to luks that
-# we're worthy. Either present a keyfile or the recovery passphrase.
-if [ -n "$opt_keyfile" ]; then
-    luks_add_password "$partition_dev" "$opt_keyfile" "$insecure_password"
-    status=$?
-else
-    if [ -z "$opt_password" ]; then
-	request_password "Please enter LUKS recovery password"
-	if [ -z "$result_password" ]; then
-	    display_errorbox "Unable to obtain recovery password; aborting."
-	    exit 1
-	fi
-	opt_password="${result_password}"
+    ##################################################################
+    # Check whether we have already defined a firstboot password. If so,
+    # refuse to do anything.
+    # If we really wanted to be perfect, we could use luks_change_password
+    # instead of luks_add_password in this case. But I'm lazy, not perfect.
+    current_password=$(bootloader_get_fde_password)
+    if [ -n "$current_password" ]; then
+	display_errorbox "You have already defined a firstboot password"
+	return 1
     fi
-    luks_keyfile=$(luks_write_password pass "${opt_password}")
-    luks_add_password "$partition_dev" "$luks_keyfile" "$insecure_password"
-    status=$?
-    rm -f "$luks_keyfile"
-fi
 
-if [ "$status" -ne 0 ]; then
-    display_errorbox "Failed to add firstboot password to LUKS partition"
-    exit 1
-fi
+    ##################################################################
+    # Generate a random firstboot password.
+    insecure_password="$(fde_random_password)"
 
-if ! bootloader_set_fde_password "$insecure_password"; then
-    display_errorbox "Failed to configure boot loader to use firstboot password"
-    exit 1
-fi
+    # In order to install the new password, we need to prove to luks that
+    # we're worthy. Either present a keyfile or the recovery passphrase.
+    if [ -n "$opt_keyfile" ]; then
+	luks_add_password "$partition_dev" "$opt_keyfile" "$insecure_password"
+	status=$?
+    else
+	if [ -z "$opt_password" ]; then
+	    request_password "Please enter LUKS recovery password"
+	    if [ -z "$result_password" ]; then
+		display_errorbox "Unable to obtain recovery password; aborting."
+		return 1
+	    fi
+	    opt_password="${result_password}"
+	fi
+	luks_keyfile=$(luks_write_password pass "${opt_password}")
+	luks_add_password "$partition_dev" "$luks_keyfile" "$insecure_password"
+	status=$?
+	rm -f "$luks_keyfile"
+    fi
+
+    if [ "$status" -ne 0 ]; then
+	display_errorbox "Failed to add firstboot password to LUKS partition"
+	return 1
+    fi
+
+    if ! bootloader_set_fde_password "$insecure_password"; then
+	display_errorbox "Failed to configure boot loader to use firstboot password"
+	return 1
+    fi
+}

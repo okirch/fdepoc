@@ -18,6 +18,8 @@
 #
 #   Written by Olaf Kirch <okir@suse.com>
 
+shopt -s expand_aliases
+
 : ${SHAREDIR:=/usr/share/fde}
 
 . $SHAREDIR/luks
@@ -176,3 +178,17 @@ FDE_CONFIG_DIR=/etc/fde
 . "$SHAREDIR/tpm"
 . "$SHAREDIR/$opt_bootloader"
 . "$SHAREDIR/commands/$command"
+
+if cmd_requires_luks_device; then
+    fde_identify_fs_root fsdev
+
+    luks_dev=$(luks_get_volume_for_fsdev "$fsdev")
+    if [ -z "$luks_dev" ]; then
+	display_errorbox "Cannot find the underlying partition for $fsdev"
+	exit 1
+    fi
+
+    cmd_perform "$luks_dev"
+else
+    cmd_perform
+fi

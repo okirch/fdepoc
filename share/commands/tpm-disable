@@ -16,5 +16,12 @@
 #   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 #
 #   Written by Olaf Kirch <okir@suse.com>
-echo "TPM Disable not yet implemented." >&2
-exit 1
+
+alias cmd_requires_luks_device=true
+alias cmd_perform=cmd_tpm_disable
+
+function cmd_tpm_disable {
+
+    echo "TPM Disable not yet implemented." >&2
+    return 1
+}
