@@ -3,7 +3,9 @@ To be done:
  - add manpage
  - add-secondary-key: make sure we really only have two keys
  - tpm-disable: implement
- - enable/disable-doormat: needs testing
+ - add/remove-secondary-pass: needs testing
+ - LUKS over LVM is currently not working (we end up with the wrong
+   partition UUID in grub.cfg, it seems).
 
 What we want
  - kiwi options to create a LUKS volume w null cipher and empty password

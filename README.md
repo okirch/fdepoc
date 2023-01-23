@@ -38,15 +38,15 @@ achieve this, we need install a temporary, alternative password and
 leave that in cleartext in the boot loader configuration (for grub,
 this would be the grub.cfg file on the EFI System Partition).
 
-In order to install such as "firstboot password", use the ``dormat``
+In order to install such as "firstboot password", use the following
 command:
 
-	# fdectl enable-doormat
+	# fdectl add-secondary-password
 
 This will ask for the recovery password, and create an additional
-slot in the LUKS header that is protected by a additional, insecure
-password, and will configure the bootloader to use that to unlock
-the system partition on next boot.
+slot in the LUKS header that is protected by an additional, randomly
+generated password, and will configure the bootloader to use that
+to unlock the system partition on next boot.
 
 If you do not want to be prompted for the recovery password, you can
 also use either the ``--keyfile`` or the ``--password`` option to
@@ -56,7 +56,7 @@ Normally, the first boot into a freshly installed system will dispose
 of any firstboot password configured by the installer. If you want
 to remove the password explicitly, you can use
 
-	# fdectl disable-doormat
+	# fdectl remove-secondary-password
 
 
 ## Installation using PCR Policies
@@ -80,7 +80,7 @@ This will create a _new_ LUKS key, which is then sealed against the
 predicted TPM state, and installed in the UEFI System Partition.
 The old key, which was created by the installer, is removed.
 
-Note, when using ``fdectl doormat`` as described above, ``tpm-enable``
+Note, when using ``fdectl add-secondary-password`` as described above, ``tpm-enable``
 will also have to remove this well-known password from the LUKS header.
 
 Usually, the ``tpm-enable`` command is invoked automatically on first

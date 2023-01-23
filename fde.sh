@@ -64,8 +64,8 @@ Global options:
 Commands:
   help - display this message
   passwd - change the password protecting the partition
-  enable-doormat - protect partition with a passphrase and use that to unlock on next boot
-  disable-doormat - remove passphrase installed by enable-doormat
+  add-secondary-password - protect partition with a passphrase and use that to unlock on next boot
+  remove-secondary-password - remove passphrase installed by add-secondary-password
   tpm-present - check whether a TPM2 chip is present and working
   tpm-enable - enable TPM protection
   tpm-disable - disable TPM protection
