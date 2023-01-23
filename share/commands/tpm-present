@@ -22,6 +22,7 @@ alias cmd_perform=cmd_tpm_present
 
 function cmd_tpm_present {
 
-    tpm_present_and_working
+    tpm_present_and_working &&
+	tpm_test $FDE_KEY_SIZE_BYTES
     return $?
 }
