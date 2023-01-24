@@ -108,6 +108,39 @@ function fde_identify_fs_root {
     declare -g $var_name="$fsdev"
 }
 
+# Hack to deal with d-installer telling us about the installed system using the
+# --device option rather than using chroot.
+function fde_maybe_chroot {
+
+    declare -a A
+    device=""
+    keyfile=""
+
+    while [ $# -gt 0 ]; do
+	arg=$1; shift
+	if [ "$arg" = "--device" ]; then
+	    device=$1; shift 1;
+	elif [ "$arg" = "--keyfile" ]; then
+	    keyfile=$1; shift 1;
+	else
+	    A+=("$arg")
+	fi
+    done
+
+    if [ -n "$device" ]; then
+	echo "About to invoke fdectl in system below $device"
+
+	# If a keyfile was given, we need to strip off the /mnt prefix
+	if [ -n "$keyfile" ]; then
+	    keyfile="${keyfile#$device}"
+	    A+=("--keyfile" "$keyfile")
+	fi
+        exec chroot "$device" fdectl "${A[@]}"
+    fi
+}
+
+fde_maybe_chroot "$@"
+
 long_options="help,bootloader:,device:,use-dialog,keyfile:,uefi-boot-dir:,password:"
 
 if ! getopt -Q -n fdectl -l "$long_options" -o h -- "$@"; then
