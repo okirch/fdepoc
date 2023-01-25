@@ -285,7 +285,7 @@ function luks_add_password {
 	luks_new_password="${result_password}"
     fi
 
-    display_infobox "Updating LUKS recovery password"
+    display_infobox "Updating LUKS password"
 
     new_keyfile=$(luks_write_password newpass "${luks_new_password}")
     if ! cryptsetup --key-file "${luks_keyfile}" luksAddKey --pbkdf "$FDE_LUKS_PBKDF" "${luks_dev}" ${new_keyfile}; then
