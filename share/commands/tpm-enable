@@ -17,12 +17,109 @@
 #
 #   Written by Olaf Kirch <okir@suse.com>
 
+. $SHAREDIR/commands/remove-secondary-password
+
 alias cmd_requires_luks_device=true
 alias cmd_perform=cmd_tpm_enable
 
 function cmd_tpm_enable {
 
     luks_dev="$1"
+
+    st=1
+
+    # The installer may have set a random password to avoid the password
+    # prompt on firstboot.
+    # We must clear this before computing any PCR policies, otherwise
+    # we end up hashing the wrong grub.cfg file
+    remove_secondary_password "$luks_dev"
+
+    if [[ "$FDE_USE_AUTHORIZED_POLICIES" =~ y.* ]]; then
+	if [ -z "$FDE_AUTHORIZED_POLICY" ]; then
+	    display_errorbox "Cannot enable TPM - authorized policies requested, but none created yet"
+	    return 1
+	fi
+
+	# Tell the boot loader about the authorized policy and the misc files
+	# that go with it...
+	if tpm_enable_authorized_policy "$luks_dev"; then
+	    # ... and authorize the current system configuration.
+	    # This is what "fdectl tpm-authorize" does, inlined.
+	    tpm_set_authorized_policy_paths "$FDE_AUTHORIZED_POLICY"
+	    bootloader_authorize_pcr_policy "$FDE_AP_SECRET_KEY" 
+	    st=$?
+	fi
+    elif [ -n "$opt_keyfile" ]; then
+	# We were invoked with --keyfile "/foo/bar"
+	tpm_enable_pcr_policy "$luks_dev" "$opt_keyfile"
+	st=$?
+    elif [ -n "$FDE_ENROLL_NEW_KEY" ]; then
+	# We're asked to enroll a secondary key. Do so, and zap the
+	# setting in /etc/sysconfig/fde-tools
+	tpm_enable_pcr_policy "$luks_dev" "$FDE_ENROLL_NEW_KEY"
+	st=$?
+
+	rm -vf "$FDE_ENROLL_NEW_KEY"
+	fde_set_variable FDE_ENROLL_NEW_KEY ""
+    elif [ -n "$opt_create_new_key" ]; then
+	# We're being asked to create a secondary key and enroll it in one
+	# go. This is rarely useful
+	tpm_enable_pcr_policy "$luks_dev"
+	st=$?
+    else
+	# We are just checkin' whether anything needs to be done.
+	# This is usually called from the fde activation service (by
+	# systemd). Obviously, there was no key to enroll, so we might
+	# as well return.
+	#
+	# However, if there was a firstboot password, fall thru to remove the password.
+	# After all, it's supposed to be good for one reboot only.
+	if [ "$(bootloader_get_fde_password)" = "" ]; then
+	    return 0
+	fi
+	st=0
+    fi
+
+    if ! bootloader_commit_config; then
+	display_errorbox "Failed to update bootloader configuration"
+	return 1
+    fi
+
+    return $st
+}
+
+function init_authorized_policy {
+
+    policy_name="$FDE_AUTHORIZED_POLICY"
+    if [ -z "$policy_name" ]; then
+	policy_name="$FDE_DEFAULT_AUTHORIZED_POLICY"
+    fi
+
+    ##################################################################
+    # Create the policy. If the private key does not exist yet,
+    # pcr-oracle will generate a suitable key.
+    # We also store a copy of the public key in a TPMv2 format so that
+    # boot loaders do need a full PEM/ASN.1 for that.
+    tpm_set_authorized_policy_paths "$policy_name"
+    tpm_create_authorized_policy $FDE_AP_SECRET_KEY $FDE_AP_AUTHPOLICY $FDE_AP_PUBLIC_KEY
+
+    if [ "$FDE_AUTHORIZED_POLICY" != "$policy_name" ]; then
+	fde_set_variable FDE_AUTHORIZED_POLICY "$policy_name"
+    fi
+}
+
+function tpm_enable_authorized_policy {
+
+    luks_dev="$1"
+
+    # When we get here, the installer should already have
+    #  - created an authorized policy
+    #  - added a secondary key
+    #  - signed the secondary key against the authorized policy
+    if [ -n "$FDE_ENROLL_NEW_KEY" ]; then
+	display_errorbox "Bad, there's a secondary key in $FDE_ENROLL_NEW_KEY - please remove from LUKS volume"
+	return 1
+    fi
 
     if [ -n "$FDE_AUTHORIZED_POLICY" ]; then
 	tpm_set_authorized_policy_paths "$FDE_AUTHORIZED_POLICY"
@@ -46,9 +143,19 @@ function cmd_tpm_enable {
 		    "$FDE_AP_AUTHPOLICY" "$FDE_AP_PUBLIC_KEY"
 	return $?
     fi
+}
 
-    if [ -n "$opt_keyfile" ]; then
-	luks_keyfile="$opt_keyfile"
+function tpm_enable_pcr_policy {
+
+    luks_dev="$1"
+    luks_keyfile="$2"
+
+    if [ -n "$luks_keyfile" ]; then
+	if [ ! -f "$luks_keyfile" ]; then
+	    display_errorbox "Cannot enroll new FDE key $luks_keyfile: file not found"
+	    return 1
+	fi
+
 	luks_new_keyfile=$(fde_make_tempfile new.key)
 	cp "$luks_keyfile" "$luks_new_keyfile"
 
@@ -63,8 +170,6 @@ function cmd_tpm_enable {
 	    rm -f "$luks_keyfile" "$luks_new_keyfile"
 	    return 1
 	fi
-
-	rm -f "$luks_keyfile"
     else
 	request_password "Please enter LUKS recovery password"
 	if [ -z "$result_password" ]; then
@@ -80,11 +185,12 @@ function cmd_tpm_enable {
 	    rm -f "$luks_keyfile" "$luks_new_keyfile"
 	    return 1
 	fi
+
+	rm -f "$luks_keyfile"
     fi
 
     if ! bootloader_enable_fde_pcr_policy "${luks_new_keyfile}"; then
 	display_errorbox "Failed to protect encrypted volume with TPM"
-	rm -f "$luks_keyfile"
 	return 1
     fi
 
