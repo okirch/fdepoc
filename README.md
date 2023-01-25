@@ -112,33 +112,31 @@ inserts an RSA key in the middle - and if you update say the grub2
 boot loader, you do not re-seal the secret, you just re-compute
 the PCR values, and sign them with an RSA secret key.
 
-To enable the use of authorized policies during installation, the
-installer needs to perform these steps:
+To enable the use of authorized policies during installation,
+set ``FDE_USE_AUTHORIZED_POLICIES=yes`` in ``/etc/sysconfig/fde-tools``,
+and add a secondary key:
 
-	# fdectl init-authorized-policy
 	# fdectl add-secondary-key
 
-The first command creates a suitable RSA key, and the authorized policy.
-Both will be placed under ``/etc/fde``.
+This adds a random key to the LUKS volume. However, rather than
+placing it somewhere in the file system for ``tpm-enable`` to pick
+it up on the next boot, it creates a suitable RSA key, an authorized
+policy, and uses the TPM to seal this secret key against the
+authorized policy. All resulting files will be placed under ``/etc/fde``.
 
-The second step will add a second key to the LUKS header, just as in
-the case of regular PCR policies. However, this will not copy the
-cleartext key to the installed system (note the absence of the ``--keyfile``
-option), but have the TPM seal it against the authorized policy.
+Note the absence of the ``--keyfile`` option. It is actually an
+error to use this option while authorized policies are enabled.
 
 After booting into the installed system, we can now enable the
 authorized policy:
 
 	# fdectl tpm-enable
-	# fdectl tpm-authorize
 
 As before, ``tpm-enable`` will configure the boot loader to
 unlock the LUKS partition by unsealing the secret key.
-
-However, there is a second step required, which is to actually
-_authorize_ the current system using the ``tpm-authorize``
-command. This will predict a set of PCR values, and use the 
-RSA key to sign the resulting PCR policy. 
+Implicitly, there is a second step involved, which is to actually
+_authorize_ the current system configuration. This will predict a
+set of PCR values, and use the RSA key to sign the resulting PCR policy. 
 
 # Updates of boot components
 
