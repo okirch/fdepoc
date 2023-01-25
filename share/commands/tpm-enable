@@ -165,8 +165,7 @@ function tpm_enable_pcr_policy {
 	    return 1
 	fi
     else
-	request_password "Please enter LUKS recovery password"
-	if [ -z "$result_password" ]; then
+	if ! fde_request_recovery_password; then
 	    display_errorbox "Unable to obtain recovery password; aborting."
 	    return 1
 	fi
