@@ -26,7 +26,6 @@ shopt -s expand_aliases
 
 opt_bootloader=grub2
 opt_uefi_bootdir=""
-opt_device=""
 opt_ui=shell
 opt_keyfile=""
 opt_password=""
@@ -85,29 +84,6 @@ function fde_bad_argument {
     exit 2
 }
 
-function fde_identify_fs_root {
-
-    var_name=$1
-
-    if [ -z "$opt_device" ]; then
-	opt_device="/"
-    fi
-
-    case $opt_device in
-    /dev/*)
-	fsdev="$opt_device";;
-    /*)
-	fsdev=$(luks_device_for_path "$opt_device")
-	if [ ! -b "$fsdev" ]; then
-	    fde_bad_argument "Unable to determine partition to operate on"
-	fi
-	;;
-    *)  fde_bad_argument "Don't know how to handle device \"$opt_device\"";;
-    esac
-
-    declare -g $var_name="$fsdev"
-}
-
 # Hack to deal with d-installer telling us about the installed system using the
 # --device option rather than using chroot.
 function fde_maybe_chroot {
@@ -164,7 +140,9 @@ while [ $# -gt 0 ]; do
     --bootloader)
     	opt_bootloader=$1; shift;;
     --device)
-    	opt_device=$1; shift;;
+	# We should have handled --device in fde_maybe_chroot above
+	fde_bad_option "The --device option should never show up at this point"
+	shift;;
     --use-dialog)
     	opt_ui=dialog;;
     --keyfile)
@@ -213,7 +191,11 @@ FDE_CONFIG_DIR=/etc/fde
 . "$SHAREDIR/commands/$command"
 
 if cmd_requires_luks_device; then
-    fde_identify_fs_root fsdev
+    # FIXME: This code needs some love to make it work for LUKS-over-LVM
+    fsdev=$(luks_device_for_path /)
+    if [ ! -b "$fsdev" ]; then
+	fde_bad_argument "Unable to determine partition to operate on"
+    fi
 
     luks_dev=$(luks_get_volume_for_fsdev "$fsdev")
     if [ -z "$luks_dev" ]; then
