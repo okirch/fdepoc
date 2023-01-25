@@ -84,38 +84,6 @@ function fde_bad_argument {
     exit 2
 }
 
-function fde_request_recovery_password {
-
-    declare -g __fde_cached_recovery_password
-    declare -g result_password
-
-    # If the caller specified the --password option, use that as the
-    # recovery password
-    if [ -n "$opt_password" ]; then
-	result_password="$opt_password"
-	return 0
-    fi
-
-    # Ask for the recovery password just once
-    if [ -n "$__fde_cached_recovery_password" ]; then
-	result_password="$__fde_cached_recovery_password"
-	return 0
-    fi
-
-    request_password "Please enter LUKS recovery password"
-    if [ -z "$result_password" ]; then
-	return 1
-    fi
-
-    __fde_cached_recovery_password="$result_password"
-    return 0
-}
-
-function fde_set_variable {
-
-    sysconfig_set_variable /etc/sysconfig/fde-tools "$@"
-}
-
 # Hack to deal with d-installer telling us about the installed system using the
 # --device option rather than using chroot.
 function fde_maybe_chroot {
