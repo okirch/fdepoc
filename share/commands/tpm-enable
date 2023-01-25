@@ -121,28 +121,22 @@ function tpm_enable_authorized_policy {
 	return 1
     fi
 
-    if [ -n "$FDE_AUTHORIZED_POLICY" ]; then
-	tpm_set_authorized_policy_paths "$FDE_AUTHORIZED_POLICY"
+    tpm_set_authorized_policy_paths "$FDE_AUTHORIZED_POLICY"
 
-	# The exact sequence of commands is
-	#   fdectl init-authorized-policy
-	#   fdectl add-secondary-key
-	#   fdectl tpm-enable
-	#          ^---- we are here
-	#   fdectl tpm-authorize
-	if [ ! -f "$FDE_AP_SEALED_SECRET" ]; then
-	    display_errorbox "Cannot initialize TPM based boot with authorized policy - no sealed key found"
-	    return 1
-	fi
-
-	# Copy authorized policy and other constant files to the ESP, and
-	# tell the boot loader to use these.
-	# Eventually, we will bless a specfic configuration by creating a PCR policy
-	# and signing it with our RSA key.
-	bootloader_enable_fde_authorized_policy "$FDE_AP_SEALED_SECRET" \
-		    "$FDE_AP_AUTHPOLICY" "$FDE_AP_PUBLIC_KEY"
-	return $?
+    # The secret key should have been sealed to the authorized policy during
+    # add-secondary-key already.
+    if [ ! -f "$FDE_AP_SEALED_SECRET" ]; then
+	display_errorbox "Cannot initialize TPM based boot with authorized policy - no sealed key found"
+	return 1
     fi
+
+    # Copy authorized policy and other constant files to the ESP, and
+    # tell the boot loader to use these.
+    # Eventually, we will bless a specfic configuration by creating a PCR policy
+    # and signing it with our RSA key.
+    bootloader_enable_fde_authorized_policy "$FDE_AP_SEALED_SECRET" \
+		    "$FDE_AP_AUTHPOLICY" "$FDE_AP_PUBLIC_KEY"
+    return $?
 }
 
 function tpm_enable_pcr_policy {
