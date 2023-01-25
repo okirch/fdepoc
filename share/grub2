@@ -82,7 +82,11 @@ function grub_update_early_config {
 
     grub_set_control GRUB_ENABLE_CRYPTODISK "y"
     grub_set_control GRUB_TPM2_SEALED_KEY "$sealed_key_file"
-    grub_set_control GRUB_CRYPTODISK_PASSWORD ""
+
+    # Do not clear the password implicitly; require fdectl or
+    # jeos firstboot to do so explicitly.
+    # grub_set_control GRUB_CRYPTODISK_PASSWORD ""
+
     if [ -n "$sealed_key_file" ]; then
 	grub_set_control GRUB_TPM2_PCR_BANK "$sealed_pcr_bank"
 	grub_set_control GRUB_TPM2_PCR_LIST "$sealed_pcr_list"
@@ -93,6 +97,9 @@ function grub_update_early_config {
     grub_set_control GRUB_TPM_PUBLIC_KEY "$public_key_file"
     grub_set_control GRUB_TPM_SIGNATURE "$signature_file"
 
+    # Note that we *must* recreate grub.cfg here so that the
+    # subsequent prediction by pcr-oracle is based on the grub.cfg
+    # file that will be hashed into PCR9 on boot
     grub_commit_config
 }
 
