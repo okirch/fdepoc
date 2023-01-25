@@ -23,4 +23,6 @@ FDE_LUKS_PBKDF="pbkdf2"
 # Enable/disable tracing output
 FDE_TRACING=true
 
-
+# This is used by the installer to inform "fdectl tpm-enable" about a key
+# to enroll on the next reboot
+FDE_ENROLL_NEW_KEY=""
