@@ -18,7 +18,6 @@ LIBSCRIPTS	= grub2 \
 		  ui/dialog \
 		  ui/shell \
 		  commands/passwd \
-		  commands/init-authorized-policy \
 		  commands/add-secondary-key \
 		  commands/add-secondary-password \
 		  commands/remove-secondary-password \
