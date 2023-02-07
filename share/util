@@ -78,9 +78,16 @@ function fde_clean_tempdir {
 
 function fde_make_tempfile {
 
-    fde_make_tempdir
+    test -n "$FDE_TEMP_DIR" || return 1
     echo "$FDE_TEMP_DIR/$1"
 }
+
+# Create the tempdir the first time this script gets sourced.
+# So whoever sources this file needs to call fde_clean_tempdir at exit.
+# Sorry :-)
+if [ -z "$FDE_TEMP_DIR" ]; then
+    fde_make_tempdir
+fi
 
 ##################################################################
 # Print a tracing message to stderr
