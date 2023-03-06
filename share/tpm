@@ -19,6 +19,10 @@
 
 FDE_DEFAULT_AUTHORIZED_POLICY="authorized-policy"
 
+# FIXME: this needs work for boot loaders other than grub
+# Maybe we should introduce a bootloader_stop_event() function.
+FDE_STOP_EVENT="grub-command=cryptomount"
+
 ##################################################################
 # Check whether a TPM is present and working reasonably well
 ##################################################################
@@ -43,15 +47,11 @@ function tpm_seal_key {
     secret=$1
     sealed_secret=$2
 
-    # FIXME: this needs work for boot loaders other than grub
-    # Maybe we should introduce a bootloader_stop_event() function.
-    stop_event="grub-command=cryptomount"
-
     echo "Sealing secret against PCR policy covering $FDE_SEAL_PCR_LIST" >&2
     pcr-oracle --input "$secret" --output "$sealed_secret" \
 			--algorithm "$FDE_SEAL_PCR_BANK" \
 			--from eventlog \
-			--stop-event "$stop_event" \
+			--stop-event "$FDE_STOP_EVENT" \
 			--before \
 			seal-secret \
 			"$FDE_SEAL_PCR_LIST"
@@ -188,6 +188,8 @@ function tpm_authorize {
 		--algorithm "$FDE_SEAL_PCR_BANK" \
                 --private-key "$private_key_file" \
                 --from eventlog \
+		--stop-event "$FDE_STOP_EVENT" \
+		--before \
                 --output "$signed_policy_file" \
                 sign "$FDE_SEAL_PCR_LIST"
 }
