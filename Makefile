@@ -27,7 +27,7 @@ LIBSCRIPTS	= grub2 \
 
 _LIBSCRIPTS	= $(addprefix share/,$(LIBSCRIPTS))
 
-SUBDIRS := man
+SUBDIRS := man bash-completion
 
 .PHONY: all install $(SUBDIRS)
 

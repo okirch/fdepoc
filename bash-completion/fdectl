@@ -1,0 +1,48 @@
+# bash completion for fdectl        -*- shell-script -*-
+
+__get_block_devices() {
+    local i
+    for i in /dev/*; do
+        [ -b "$i" ] && printf '%s\n' "$i"
+    done
+}
+
+_fdectl() {
+    local cur prev opts
+
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    case "${prev}" in
+    --bootloader)
+        COMPREPLY=( $(compgen -W "grub2 systemd-boot" -- ${cur}) )
+        return 0
+        ;;
+    --keyfile)
+        COMPREPLY=( $(compgen -f -- ${cur}) )
+        return 0
+        ;;
+    --device)
+        local bdevs
+        bdevs=$(__get_block_devices)
+        COMPREPLY=( $(compgen -W "${bdevs}" -- ${cur}) )
+        return 0
+        ;;
+    --uefi-boot-dir)
+        compopt -o filenames
+        COMPREPLY=( $(compgen -d -- ${cur}) )
+        return 0
+        ;;
+    esac
+
+    opts=$( fdectl --help 2>&1 |
+            awk '/^\s*--/ {print $1; next}
+            /^Commands/ {c = 1; next}
+            c == 1 {print $1}' )
+    COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+}
+
+complete -F _fdectl fdectl
+
+# ex: ts=4 sw=4 et filetype=sh
