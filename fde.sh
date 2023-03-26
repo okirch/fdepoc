@@ -22,7 +22,7 @@ shopt -s expand_aliases
 
 : ${SHAREDIR:=/usr/share/fde}
 
-. $SHAREDIR/luks
+version=0.6.3
 
 opt_bootloader=grub2
 opt_uefi_bootdir=""
@@ -37,13 +37,15 @@ opt_password=""
 ##################################################################
 function fde_usage {
 
-    cat >&2 <<EOF
+    cat <<EOF
 
-Usage: fde [global-options] command [cmd-options]
+Usage: fdectl [global-options] command [cmd-options]
 
 Global options:
   --help
 	Display this message
+  --version
+	Print program version 
   --device
 	Specify the partition to operate on. Can be a device
 	name or a mount point. Defaults to the current root
@@ -61,13 +63,13 @@ Global options:
 	installer only.
 
 Commands:
-  help - display this message
-  passwd - change the password protecting the partition
-  add-secondary-password - protect partition with a passphrase and use that to unlock on next boot
-  remove-secondary-password - remove passphrase installed by add-secondary-password
-  tpm-present - check whether a TPM2 chip is present and working
-  tpm-enable - enable TPM protection
-  tpm-disable - disable TPM protection
+  help		display this message
+  passwd	change the password protecting the partition
+  add-secondary-password	protect partition with a passphrase and use that to unlock on next boot
+  remove-secondary-password	remove passphrase installed by add-secondary-password
+  tpm-present	check whether a TPM2 chip is present and working
+  tpm-enable	enable TPM protection
+  tpm-disable	disable TPM protection
 EOF
 }
 
@@ -117,7 +119,7 @@ function fde_maybe_chroot {
 
 fde_maybe_chroot "$@"
 
-long_options="help,bootloader:,device:,use-dialog,keyfile:,uefi-boot-dir:,password:"
+long_options="help,version,bootloader:,device:,use-dialog,keyfile:,uefi-boot-dir:,password:"
 
 if ! getopt -Q -n fdectl -l "$long_options" -o h -- "$@"; then
     fde_usage
@@ -136,6 +138,9 @@ while [ $# -gt 0 ]; do
 	command=$1; shift; break;;
     -h|--help)
     	fde_usage
+	exit 0;;
+    --version)
+	echo "$version"
 	exit 0;;
     --bootloader)
     	opt_bootloader=$1; shift;;
@@ -176,6 +181,7 @@ fi
 
 trap fde_clean_tempdir 0 1 2 11 15
 
+. "$SHAREDIR/luks"
 . "$SHAREDIR/uefi"
 if [ -n "$opt_uefi_bootdir" ]; then
     uefi_set_loader "$opt_uefi_bootdir"

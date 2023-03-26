@@ -1,4 +1,4 @@
-PKGNAME		= fde-tools-0.6.3
+PKGNAME		= fde-tools-$(shell ./fde.sh --version)
 
 CCOPT		= -O0 -g
 SBINDIR		= /sbin
@@ -27,7 +27,11 @@ LIBSCRIPTS	= grub2 \
 
 _LIBSCRIPTS	= $(addprefix share/,$(LIBSCRIPTS))
 
-all: $(TOOLS)
+SUBDIRS := man
+
+.PHONY: all install $(SUBDIRS)
+
+all:: $(TOOLS) $(SUBDIRS)
 
 install:: $(TOOLS)
 	install -d $(DESTDIR)/bin
@@ -48,6 +52,14 @@ install::
 	@install -m 555 -v fde.sh $(DESTDIR)$(SBINDIR)/fdectl
 	@install -m 755 -v -d $(DESTDIR)$(FDE_CONFIG_DIR)
 
+$(SUBDIRS):
+	$(MAKE) -C $@
+
+install:: $(SUBDIRS)
+	@for d in $(SUBDIRS); do \
+		$(MAKE) -C $$d install; \
+	done
+
 clean:
 	rm -f $(TOOLS)
 	rm -rf build
@@ -61,7 +73,7 @@ build/%.o: src/%.c
 
 dist:
 	mkdir -p $(PKGNAME)
-	cp -a Makefile sysconfig.fde fde.sh src share firstboot $(PKGNAME)
+	cp -a Makefile sysconfig.fde fde.sh src share firstboot $(SUBDIRS) $(PKGNAME)
 	@find $(PKGNAME) -name '.*.swp' -o -name '*.{rej,orig}' | xargs -rt rm
 	tar -cvjf $(PKGNAME).tar.bz2 $(PKGNAME)/*
 	rm -rf $(PKGNAME)
