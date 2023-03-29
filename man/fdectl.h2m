@@ -1,0 +1,59 @@
+[NAME]
+fdectl \- Tool for controlling Full Disk Encryption
+
+[DESCRIPTION]
+The primary objective of this tool is to streamline the TPM seal/unseal process
+for system administrators and installers. To achieve this, it heavily depends
+on \fBpcr-oracle\fP to forecast the relevant TPM Platform Configuration
+Registers (PCRs) values at the point when the boot loader needs to unseal the
+key. The primary configuration file for this tool is located at
+\fB/etc/sysconfig/fde-tools\fP.
+
+[EXAMPLES]
+Testing for the presence of a TPM
+
+.B
+.nf
+fdectl tpm-present
+.PP
+.fi
+
+This will return an exit status of 0 (success) or 1 (absent).
+
+If the users asks for the LUKS partition to be protected by the TPM, the
+installer needs to create a secondary key and pass this to the installed
+system, like this:
+
+.B
+.nf
+fdectl add-secondary-key --keyfile /root/.root.key
+.PP
+.fi
+
+This will prompt for the recovery password that is able to unlock the LUKS
+partition. Alternatively, you can pass the password on the command like using
+the \fI--password\fP option.
+
+After booting into the installed system, TPM protection needs to be enabled
+using this command:
+
+.B
+.nf
+fdectl tpm-enable --keyfile /root/.root.keyfile
+.PP
+.fi
+
+This will create a _new_ LUKS key, which is then sealed against the predicted
+TPM state, and installed in the UEFI System Partition. The old key, which was
+created by the installer, is removed.
+
+Note, when using \fBfdectl add-secondary-password\fP as described above,
+\fItpm-enable\fP will also have to remove this well-known password from the
+LUKS header.
+
+Usually, the \fItpm-enable\fP command is invoked automatically on first boot
+via the \fBfde-tools.service\fP unit file.
+
+[SEE ALSO]
+.BR pcr-oracle (8),
+.BR cryptsetup (8)
